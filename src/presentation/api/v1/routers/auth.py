@@ -47,6 +47,7 @@ def get_client_info(request: Request) -> tuple[str | None, str | None]:
     user_agent = request.headers.get("user-agent")
     # Get real IP considering proxies
     forwarded_for = request.headers.get("x-forwarded-for")
+    ip_address: str | None = None
     if forwarded_for:
         ip_address = forwarded_for.split(",")[0].strip()
     else:

@@ -2,7 +2,7 @@
 
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from fastapi import Request, Response, status
@@ -124,7 +124,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
         request: Request,
-        call_next: Callable,
+        call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         """Process request with rate limiting.
 
