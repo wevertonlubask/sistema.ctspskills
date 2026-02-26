@@ -1,6 +1,6 @@
-# CT-SPSkills
+# CENTRO DE TREINAMENTO SÃO PAULO SKILLS
 
-Sistema de Gestão de Treinamento **São Paulo Skills** - SENAI-SP
+Sistema de Gestão de Treinamento para ocupaçÕes da **São Paulo Skills** - SENAI-SP
 
 **Produção:** [https://seudominio.com.br/ctspskills](https://seudominio.com.br/ctspskills)
 
@@ -380,4 +380,4 @@ certbot renew --dry-run
 
 ## Licença
 
-Projeto desenvolvido para uso interno SENAI-SP.
+Projeto desenvolvido pelo Prof. Weverton Lubask para uso interno das Modalidades da São Paulo Skills.
