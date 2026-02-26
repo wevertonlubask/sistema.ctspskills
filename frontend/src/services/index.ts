@@ -1,0 +1,12 @@
+export { api } from './api';
+export { authService } from './authService';
+export { modalityService } from './modalityService';
+export { trainingService } from './trainingService';
+export { trainingTypeService } from './trainingTypeService';
+export { examService, gradeService } from './assessmentService';
+export { competitorService } from './competitorService';
+export { enrollmentService } from './enrollmentService';
+export { goalService } from './goalService';
+export { dashboardService } from './dashboardService';
+export { platformSettingsService } from './platformSettingsService';
+export { reportService } from './reportService';

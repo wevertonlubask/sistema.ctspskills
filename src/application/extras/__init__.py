@@ -1,0 +1,1 @@
+"""Extra features application module."""
