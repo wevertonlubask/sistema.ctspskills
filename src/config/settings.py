@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Field-level encryption
     field_encryption_key: str = Field(
         default="",
-        description="Fernet key for encrypting sensitive PII fields (base64 URL-safe, generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")",
+        description='Fernet key for encrypting sensitive PII fields (base64 URL-safe, generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")',
     )
 
     @property
@@ -87,12 +87,14 @@ class Settings(BaseSettings):
         if not v:
             raise ValueError(
                 "FIELD_ENCRYPTION_KEY must be set. "
-                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
         try:
             Fernet(v.encode())
         except Exception as exc:
-            raise ValueError("FIELD_ENCRYPTION_KEY must be a valid Fernet key (base64 URL-safe, 32 bytes)") from exc
+            raise ValueError(
+                "FIELD_ENCRYPTION_KEY must be a valid Fernet key (base64 URL-safe, 32 bytes)"
+            ) from exc
         return v
 
     @property
