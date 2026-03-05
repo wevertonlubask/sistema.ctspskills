@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.modality.dtos.competitor_dto import CreateCompetitorDTO
@@ -19,6 +20,7 @@ from src.infrastructure.database.repositories import (
 from src.presentation.api.v1.dependencies.auth import (
     get_current_active_user,
     require_evaluator,
+    require_super_admin,
 )
 from src.presentation.api.v1.dependencies.database import get_db
 from src.presentation.schemas.modality_schema import (
@@ -141,6 +143,50 @@ async def list_competitors(
 
 
 @router.get(
+    "/me",
+    response_model=CompetitorResponse,
+    summary="Get my competitor profile",
+    description="Get the competitor profile for the currently logged-in user.",
+)
+async def get_my_competitor_profile(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CompetitorResponse:
+    """Get competitor profile for the current user."""
+    import logging
+
+    from sqlalchemy import select
+
+    from src.infrastructure.database.models.modality_model import CompetitorModel
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"[CompetitorMe] Looking up competitor for user_id={current_user.id}")
+
+    # Use scalars().first() with order to handle potential duplicate profiles gracefully
+    stmt = (
+        select(CompetitorModel)
+        .where(CompetitorModel.user_id == current_user.id)
+        .order_by(CompetitorModel.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    model = result.scalars().first()
+
+    logger.info(f"[CompetitorMe] Found: {model.id if model else None}")
+
+    if not model:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Competitor profile not found")
+
+    from src.application.modality.dtos.competitor_dto import CompetitorDTO
+    from src.infrastructure.database.repositories import SQLAlchemyCompetitorRepository
+
+    competitor = SQLAlchemyCompetitorRepository(db)._model_to_entity(model)  # type: ignore[attr-defined]
+    return competitor_dto_to_response(CompetitorDTO.from_entity(competitor), email=None)
+
+
+@router.get(
     "/{competitor_id}",
     response_model=CompetitorResponse,
     summary="Get competitor",
@@ -258,3 +304,103 @@ async def get_competitor_enrollments(
         limit=len(enrollments),
         has_more=False,
     )
+
+
+class RelinkUserRequest(BaseModel):
+    email: str
+
+
+@router.patch(
+    "/{competitor_id}/relink-user",
+    response_model=CompetitorResponse,
+    summary="Relink competitor to correct user account",
+    description="Updates the competitor's user_id to match the user account with the given email. Requires super admin role.",
+)
+async def relink_competitor_user(
+    competitor_id: UUID,
+    data: RelinkUserRequest,
+    current_user: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CompetitorResponse:
+    """Fix competitor-user linkage when user_id is out of sync."""
+    import logging
+
+    from fastapi import HTTPException
+    from sqlalchemy import select, update
+
+    from src.infrastructure.database.models.modality_model import CompetitorModel
+    from src.infrastructure.database.models.user_model import UserModel
+
+    logger = logging.getLogger(__name__)
+
+    # Find competitor
+    stmt = select(CompetitorModel).where(CompetitorModel.id == competitor_id)
+    result = await db.execute(stmt)
+    competitor_model = result.scalar_one_or_none()
+    if not competitor_model:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+
+    # Find the user with the given email
+    user_stmt = select(UserModel).where(UserModel.email == data.email.lower().strip()).limit(1)
+    user_result = await db.execute(user_stmt)
+    correct_user = user_result.scalar_one_or_none()
+
+    if not correct_user:
+        raise HTTPException(status_code=404, detail=f"Nenhum usuário encontrado com o email '{data.email}'")
+
+    logger.info(
+        f"[RelinkUser] competitor_id={competitor_id}, "
+        f"old_user_id={competitor_model.user_id}, new_user_id={correct_user.id}"
+    )
+
+    # Update user_id on competitor profile
+    await db.execute(
+        update(CompetitorModel)
+        .where(CompetitorModel.id == competitor_id)
+        .values(user_id=correct_user.id)
+    )
+    await db.commit()
+
+    await db.refresh(competitor_model)
+    from src.application.modality.dtos.competitor_dto import CompetitorDTO
+    from src.infrastructure.database.repositories import SQLAlchemyCompetitorRepository
+
+    competitor = SQLAlchemyCompetitorRepository(db)._model_to_entity(competitor_model)  # type: ignore[attr-defined]
+    return competitor_dto_to_response(CompetitorDTO.from_entity(competitor), email=data.email)
+
+
+@router.delete(
+    "/{competitor_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete competitor",
+    description="Delete a competitor and their associated user account. Requires super admin role.",
+)
+async def delete_competitor(
+    competitor_id: UUID,
+    current_user: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Delete a competitor and their associated user account."""
+    from fastapi import HTTPException
+
+    from src.domain.modality.exceptions import CompetitorNotFoundException
+
+    repository = SQLAlchemyCompetitorRepository(db)
+    competitor = await repository.get_by_id(competitor_id)
+
+    if not competitor:
+        raise CompetitorNotFoundException(identifier=str(competitor_id))
+
+    user_id = competitor.user_id
+
+    deleted = await repository.delete(competitor_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Competitor with ID {competitor_id} not found",
+        )
+
+    # Also delete the associated user account
+    await SQLAlchemyUserRepository(db).delete(user_id)
+
+    await db.commit()

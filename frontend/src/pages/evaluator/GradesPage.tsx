@@ -210,15 +210,29 @@ const GradesPage: React.FC = () => {
     let errorCount = 0;
 
     try {
+      // Process updated/new grades from the map
       for (const [key, scoreStr] of bulkGrades.entries()) {
         const [competitorId, competenceId] = key.split('|');
-        const score = parseFloat(scoreStr);
+        const existingGrade = getExistingGrade(competitorId, competenceId);
 
+        // Empty field + existing grade → delete
+        if (scoreStr === '' || scoreStr === null) {
+          if (existingGrade) {
+            try {
+              await gradeService.delete(existingGrade.id);
+              successCount++;
+            } catch (err) {
+              console.error(`Erro ao remover nota para ${competitorId}/${competenceId}:`, err);
+              errorCount++;
+            }
+          }
+          continue;
+        }
+
+        const score = parseFloat(scoreStr);
         if (isNaN(score) || score < 0 || score > 100) {
           continue; // Skip invalid scores
         }
-
-        const existingGrade = getExistingGrade(competitorId, competenceId);
 
         try {
           if (existingGrade) {
@@ -240,6 +254,20 @@ const GradesPage: React.FC = () => {
         } catch (err) {
           console.error(`Erro ao salvar nota para ${competitorId}/${competenceId}:`, err);
           errorCount++;
+        }
+      }
+
+      // Delete grades that were cleared (existing but removed from the map)
+      for (const existingGrade of existingGrades) {
+        const key = `${existingGrade.competitor_id}|${existingGrade.competence_id}`;
+        if (!bulkGrades.has(key)) {
+          try {
+            await gradeService.delete(existingGrade.id);
+            successCount++;
+          } catch (err) {
+            console.error(`Erro ao remover nota ${existingGrade.id}:`, err);
+            errorCount++;
+          }
         }
       }
 
@@ -286,41 +314,67 @@ const GradesPage: React.FC = () => {
     : 0;
   const uniqueCompetitors = new Set(grades.map(g => g.competitor_id)).size;
 
+  // Group grades by competitor
+  type GroupedGrade = {
+    competitor_id: string;
+    total_score: number;
+    average_score: number;
+    count: number;
+    latest_date: string;
+  };
+
+  const groupedGradesMap = new Map<string, GroupedGrade>();
+  grades.forEach((g) => {
+    const existing = groupedGradesMap.get(g.competitor_id);
+    if (existing) {
+      existing.total_score += g.score;
+      existing.count += 1;
+      existing.average_score = existing.total_score / existing.count;
+      if (g.created_at > existing.latest_date) existing.latest_date = g.created_at;
+    } else {
+      groupedGradesMap.set(g.competitor_id, {
+        competitor_id: g.competitor_id,
+        total_score: g.score,
+        average_score: g.score,
+        count: 1,
+        latest_date: g.created_at,
+      });
+    }
+  });
+  const groupedGrades = Array.from(groupedGradesMap.values()).sort((a, b) =>
+    getCompetitorName(a.competitor_id).localeCompare(getCompetitorName(b.competitor_id))
+  );
+
   const columns = [
     {
       key: 'competitor_id',
       header: 'Competidor',
-      render: (item: Grade) => (
+      render: (item: GroupedGrade) => (
         <span className="font-medium">{getCompetitorName(item.competitor_id)}</span>
       ),
     },
     {
-      key: 'competence_id',
-      header: 'Competência',
-      render: (item: Grade) => getCompetenceName(item.competence_id),
-    },
-    {
-      key: 'score',
-      header: 'Nota',
-      render: (item: Grade) => (
-        <Badge variant={getScoreVariant(item.score)}>
-          {item.score.toFixed(1)}
+      key: 'total_score',
+      header: 'Total',
+      render: (item: GroupedGrade) => (
+        <Badge variant={getScoreVariant(item.total_score)}>
+          {item.total_score.toFixed(1)}
         </Badge>
       ),
     },
     {
-      key: 'notes',
-      header: 'Observações',
-      render: (item: Grade) => (
+      key: 'count',
+      header: 'Competências',
+      render: (item: GroupedGrade) => (
         <span className="text-sm text-gray-500 dark:text-gray-400">
-          {item.notes || '-'}
+          {item.count}
         </span>
       ),
     },
     {
-      key: 'created_at',
+      key: 'latest_date',
       header: 'Data',
-      render: (item: Grade) => new Date(item.created_at).toLocaleDateString('pt-BR'),
+      render: (item: GroupedGrade) => new Date(item.latest_date).toLocaleDateString('pt-BR'),
     },
   ];
 
@@ -442,9 +496,9 @@ const GradesPage: React.FC = () => {
       <Card padding="none">
         {filterExamId ? (
           <Table
-            data={grades}
+            data={groupedGrades}
             columns={columns}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.competitor_id}
             emptyMessage="Nenhuma nota lançada para esta avaliação"
           />
         ) : (
@@ -596,7 +650,7 @@ const GradesPage: React.FC = () => {
                   <Button
                     onClick={handleSaveBulkGrades}
                     isLoading={isSavingBulkGrades}
-                    disabled={bulkGrades.size === 0}
+                    disabled={bulkGrades.size === 0 && existingGrades.length === 0}
                   >
                     Salvar Todas as Notas
                   </Button>

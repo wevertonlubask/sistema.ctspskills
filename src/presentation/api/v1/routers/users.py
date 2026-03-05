@@ -131,26 +131,18 @@ async def get_my_modalities(
 
     # Competitors see modalities they are enrolled in
     elif current_user.role == UserRole.COMPETITOR:
-        # First, find the competitor record for this user
-        competitor_stmt = select(CompetitorModel).where(CompetitorModel.user_id == current_user.id)
-        competitor_result = await db.execute(competitor_stmt)
-        competitor = competitor_result.scalar_one_or_none()
-
-        if not competitor:
-            # No competitor profile found
-            modalities = []
-        else:
-            # Get modalities from enrollments
-            stmt = (
-                select(ModalityModel)
-                .join(EnrollmentModel, EnrollmentModel.modality_id == ModalityModel.id)
-                .where(EnrollmentModel.competitor_id == competitor.id)
-                .where(EnrollmentModel.status == "active")
-                .where(ModalityModel.is_active)
-                .order_by(ModalityModel.name)
-            )
-            result = await db.execute(stmt)
-            modalities = result.scalars().unique().all()
+        # Single query: join through competitor's user_id directly
+        # This avoids a separate competitor lookup and handles user_id matching robustly
+        stmt = (
+            select(ModalityModel)
+            .join(EnrollmentModel, EnrollmentModel.modality_id == ModalityModel.id)
+            .join(CompetitorModel, CompetitorModel.id == EnrollmentModel.competitor_id)
+            .where(CompetitorModel.user_id == current_user.id)
+            .where(EnrollmentModel.status == "active")
+            .order_by(ModalityModel.name)
+        )
+        result = await db.execute(stmt)
+        modalities = result.scalars().unique().all()
 
     # Evaluators see modalities from both direct assignments and enrollment assignments
     else:

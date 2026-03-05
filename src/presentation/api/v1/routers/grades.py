@@ -102,6 +102,7 @@ async def register_grade(
         dto=dto,
         ip_address=ip_address,
         user_agent=user_agent,
+        is_super_admin=(current_user.role == UserRole.SUPER_ADMIN),
     )
     await db.commit()
 
@@ -131,8 +132,11 @@ async def list_grades(
         competitor = await competitor_repo.get_by_user_id(current_user.id)
         if competitor:
             target_competitor_id = competitor.id
+        else:
+            # Competitor has no profile yet — return empty list
+            return GradeListResponse(grades=[], total=0, skip=skip, limit=limit, has_more=False)
 
-    # Evaluators and admins can list grades by exam_id without competitor_id
+    # Evaluators and admins must provide competitor_id or exam_id
     if not target_competitor_id and not exam_id:
         from fastapi import HTTPException
 
@@ -247,10 +251,43 @@ async def update_grade(
         dto=dto,
         ip_address=ip_address,
         user_agent=user_agent,
+        is_super_admin=(current_user.role == UserRole.SUPER_ADMIN),
     )
     await db.commit()
 
     return grade_dto_to_response(result)
+
+
+@router.delete(
+    "/{grade_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete grade",
+    description="Delete a grade. Requires evaluator role.",
+)
+async def delete_grade(
+    grade_id: UUID,
+    current_user: Annotated[User, Depends(require_evaluator)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Delete a grade."""
+    from fastapi import HTTPException
+
+    grade_repo = SQLAlchemyGradeRepository(db)
+    grade = await grade_repo.get_by_id(grade_id)
+
+    if not grade:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Grade with ID {grade_id} not found",
+        )
+
+    deleted = await grade_repo.delete(grade_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Grade with ID {grade_id} not found",
+        )
+    await db.commit()
 
 
 @router.get(

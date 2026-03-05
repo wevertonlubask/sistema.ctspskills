@@ -107,6 +107,10 @@ export const gradeService = {
     return response.data;
   },
 
+  async delete(id: string): Promise<void> {
+    await api.delete(`/grades/${id}`);
+  },
+
   async getHistory(id: string): Promise<GradeAuditLog[]> {
     const response = await api.get<{ history: GradeAuditLog[] }>(`/grades/${id}/history`);
     return response.data.history;

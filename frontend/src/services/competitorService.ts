@@ -43,6 +43,11 @@ export const competitorService = {
     return response.data;
   },
 
+  async getMe(): Promise<Competitor> {
+    const response = await api.get<Competitor>('/competitors/me');
+    return response.data;
+  },
+
   async getById(id: string): Promise<Competitor> {
     const response = await api.get<Competitor>(`/competitors/${id}`);
     return response.data;
@@ -63,5 +68,14 @@ export const competitorService = {
   async update(id: string, data: UpdateCompetitorRequest): Promise<Competitor> {
     const response = await api.put<Competitor>(`/competitors/${id}`, data);
     return response.data;
+  },
+
+  async relinkUser(id: string, email: string): Promise<Competitor> {
+    const response = await api.patch<Competitor>(`/competitors/${id}/relink-user`, { email });
+    return response.data;
+  },
+
+  async delete(id: string): Promise<void> {
+    await api.delete(`/competitors/${id}`);
   },
 };

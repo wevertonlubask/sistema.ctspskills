@@ -90,10 +90,46 @@ const ModalitiesPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      // Super admins see all modalities, evaluators see only their assigned ones
+      // Super admins see all modalities, competitors see their enrolled ones, evaluators see assigned ones
       let data: Modality[];
       if (isSuperAdmin) {
         data = await modalityService.getAll();
+      } else if (isCompetitor) {
+        // Para competidores: tenta /competitors/me, com fallback para lista filtrada por user_id
+        let competitorId: string | null = null;
+        try {
+          const me = await competitorService.getMe();
+          competitorId = me?.id || null;
+        } catch {
+          // fallback: busca na lista pelo user_id
+          try {
+            const all = await competitorService.getAll({ limit: 1000 });
+            const userId = user?.id;
+            const found = all.competitors.find((c) => c.user_id === userId);
+            competitorId = found?.id || null;
+          } catch {
+            competitorId = null;
+          }
+        }
+        if (competitorId) {
+          try {
+            const enrollmentsResp = await enrollmentService.getByCompetitor(competitorId);
+            data = (enrollmentsResp.enrollments || []).map((e: any) => ({
+              id: e.modality_id,
+              name: e.modality_name,
+              code: e.modality_code,
+              description: '',
+              is_active: true,
+              competences: [],
+              created_at: e.created_at,
+              updated_at: e.updated_at,
+            }));
+          } catch {
+            data = [];
+          }
+        } else {
+          data = [];
+        }
       } else {
         data = await enrollmentService.getMyModalities();
       }

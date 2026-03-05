@@ -46,6 +46,7 @@ class UpdateGradeUseCase:
         dto: UpdateGradeDTO,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        is_super_admin: bool = False,
     ) -> GradeDTO:
         """Update a grade.
 
@@ -78,12 +79,12 @@ class UpdateGradeUseCase:
         if not exam.is_active:
             raise ExamNotActiveException(str(grade.exam_id))
 
-        # 3. Validate evaluator can grade this competitor (RN02)
+        # 3. Validate evaluator can grade this competitor (RN02, skipped for super_admin)
         enrollment = await self._enrollment_repository.get_by_competitor_and_modality(
             competitor_id=grade.competitor_id,
             modality_id=exam.modality_id,
         )
-        if enrollment and enrollment.evaluator_id != evaluator_id:
+        if not is_super_admin and enrollment and enrollment.evaluator_id != evaluator_id:
             # Check if evaluator has access to this modality
             evaluator_enrollments = await self._enrollment_repository.get_by_evaluator(
                 evaluator_id=evaluator_id,

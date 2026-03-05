@@ -116,17 +116,61 @@ const DashboardPage: React.FC = () => {
     }
   }, [user]);
 
+  // Resolve competitor_id with multiple fallback strategies
+  const resolveCompetitorId = async (userId: string | undefined): Promise<string | null> => {
+    // Strategy 1: GET /competitors/me (uses user_id lookup on backend)
+    try {
+      const me = await competitorService.getMe();
+      if (me?.id) return me.id;
+    } catch {
+      // fallthrough
+    }
+    // Strategy 2: GET /competitors list filtered by user_id
+    try {
+      const all = await competitorService.getAll({ limit: 1000 });
+      const found = all.competitors.find((c) => c.user_id === userId);
+      if (found?.id) return found.id;
+    } catch {
+      // fallthrough
+    }
+    return null;
+  };
+
   const fetchData = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Fetch modalities for all users
-      const myModalities = await enrollmentService.getMyModalities();
+      // Fetch modalities
+      let myModalities: Modality[] = [];
+      let myCompetitorId: string | null = null;
+      if (isCompetitor) {
+        // Resolve competitor_id com múltiplos fallbacks
+        myCompetitorId = await resolveCompetitorId(user?.id);
+        if (myCompetitorId) {
+          try {
+            const enrollmentsResp = await enrollmentService.getByCompetitor(myCompetitorId);
+            myModalities = (enrollmentsResp.enrollments || []).map((e: any) => ({
+              id: e.modality_id,
+              name: e.modality_name,
+              code: e.modality_code,
+              description: '',
+              is_active: true,
+              competences: [],
+              created_at: e.created_at,
+              updated_at: e.updated_at,
+            }));
+          } catch {
+            myModalities = [];
+          }
+        }
+      } else {
+        myModalities = await enrollmentService.getMyModalities();
+      }
       setModalities(myModalities);
 
       if (isCompetitor) {
-        await fetchCompetitorData(myModalities);
+        await fetchCompetitorData(myModalities, myCompetitorId);
       } else {
         await fetchEvaluatorData(myModalities);
       }
@@ -138,7 +182,7 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  const fetchCompetitorData = async (myModalities: Modality[]) => {
+  const fetchCompetitorData = async (myModalities: Modality[], competitorId: string | null = null) => {
     // Fetch exams for all modalities
     const allExams: Exam[] = [];
     try {
@@ -151,66 +195,65 @@ const DashboardPage: React.FC = () => {
       console.error('Error fetching exams:', err);
     }
 
-    // Fetch grades
+    // Fetch grades — passa competitor_id diretamente para garantir o filtro correto
     try {
-      const gradesResponse = await gradeService.getAll({ limit: 500 });
+      const gradesResponse = await gradeService.getAll({
+        limit: 500,
+        ...(competitorId ? { competitor_id: competitorId } : {}),
+      });
       const grades = gradesResponse.grades || [];
       setMyGrades(grades);
 
-      // Calculate overall average
-      const totalAvg = grades.length > 0
-        ? grades.reduce((sum, g) => sum + g.score, 0) / grades.length
-        : 0;
-      setOverallCompetitorAverage(Math.round(totalAvg * 10) / 10);
-
-      // Group grades by exam and calculate average per exam
-      const examGradesMap = new Map<string, { scores: number[]; examName: string; examDate: string }>();
+      // Group grades by exam and sum scores per exam (total = nota do simulado)
+      const examGradesMap = new Map<string, { total: number; examName: string; examDate: string }>();
 
       for (const grade of grades) {
         const exam = allExams.find(e => e.id === grade.exam_id);
         if (!examGradesMap.has(grade.exam_id)) {
           examGradesMap.set(grade.exam_id, {
-            scores: [],
+            total: 0,
             examName: exam?.name || 'Avaliação',
             examDate: exam?.exam_date || grade.created_at,
           });
         }
-        examGradesMap.get(grade.exam_id)!.scores.push(grade.score);
+        examGradesMap.get(grade.exam_id)!.total += grade.score;
       }
 
-      // Sort exams by date and build progress data
+      // Sort exams by date
       const examEntries = Array.from(examGradesMap.entries())
-        .map(([examId, data]) => ({
-          examId,
-          ...data,
-          average: data.scores.reduce((s, sc) => s + sc, 0) / data.scores.length,
-        }))
+        .map(([examId, data]) => ({ examId, ...data }))
         .sort((a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime());
 
-      // Build progress data showing exam averages vs overall average
+      // Overall average = average of exam totals across all exams
+      const examTotals = examEntries.map((e) => e.total);
+      const totalAvg = examTotals.length > 0
+        ? examTotals.reduce((s, v) => s + v, 0) / examTotals.length
+        : 0;
+      setOverallCompetitorAverage(Math.round(totalAvg * 10) / 10);
+
+      // Build progress data: each exam's total vs overall average
       const progressItems: ProgressData[] = examEntries.map((exam, index) => {
-        // Abbreviate exam name for display
         let displayName = exam.examName;
         if (displayName.length > 15) {
           displayName = displayName.substring(0, 12) + '...';
         }
-        // Add index for uniqueness if names repeat
         return {
           name: examEntries.length > 1 ? `${index + 1}. ${displayName}` : displayName,
-          atual: Math.round(exam.average * 10) / 10,
-          meta: Math.round(totalAvg * 10) / 10, // Use overall average as comparison
+          atual: Math.round(exam.total * 10) / 10,
+          meta: Math.round(totalAvg * 10) / 10,
         };
       });
       setMyProgressData(progressItems);
 
-      // Build evolution data - show average per exam (sorted by date)
+      // Build evolution data - total score per exam (sorted by date)
       const evolution = examEntries.map((exam, index) => ({
         name: `Sim. ${index + 1}`,
-        value: Math.round(exam.average * 10) / 10,
+        value: Math.round(exam.total * 10) / 10,
       }));
       setMyEvolutionData(evolution);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching grades:', err);
+      setError(err?.response?.data?.detail || 'Erro ao carregar notas');
     }
 
     // Fetch training stats and hours per day
@@ -220,8 +263,9 @@ const DashboardPage: React.FC = () => {
       setAllTrainings(trainings);
 
       if (trainings.length > 0) {
-        const competitorId = trainings[0].competitor_id;
-        const stats = await trainingService.getStatistics(competitorId);
+        // Use the competitor_id from the backend-filtered trainings (auto-detected from JWT)
+        const myCompetitorId = trainings[0].competitor_id;
+        const stats = await trainingService.getStatistics(myCompetitorId);
         setMyTrainingStats(stats);
 
         // Group trainings by date for the hours chart
@@ -421,9 +465,17 @@ const DashboardPage: React.FC = () => {
           const competitorGrades = gradesResponse.grades || [];
           allGrades.push(...competitorGrades);
 
-          // Calculate average
-          const avg = competitorGrades.length > 0
-            ? competitorGrades.reduce((sum, g) => sum + g.score, 0) / competitorGrades.length
+          // Group grades by exam and sum scores per exam
+          const examTotals = new Map<string, number>();
+          for (const grade of competitorGrades) {
+            examTotals.set(grade.exam_id, (examTotals.get(grade.exam_id) || 0) + grade.score);
+          }
+
+          const examTotalValues = Array.from(examTotals.values());
+
+          // Average = mean of exam totals (across multiple exams)
+          const avg = examTotalValues.length > 0
+            ? examTotalValues.reduce((s, v) => s + v, 0) / examTotalValues.length
             : 0;
 
           // Get training hours
@@ -435,18 +487,10 @@ const DashboardPage: React.FC = () => {
             // Ignore
           }
 
-          // Build evolution data
-          const examGrades = new Map<string, number[]>();
-          for (const grade of competitorGrades) {
-            if (!examGrades.has(grade.exam_id)) {
-              examGrades.set(grade.exam_id, []);
-            }
-            examGrades.get(grade.exam_id)!.push(grade.score);
-          }
-
-          const evolution = Array.from(examGrades.entries()).map(([_, scores], index) => ({
+          // Evolution: one point per exam = total score for that exam
+          const evolution = Array.from(examTotals.entries()).map(([_, total], index) => ({
             name: `Av ${index + 1}`,
-            value: Math.round((scores.reduce((s, sc) => s + sc, 0) / scores.length) * 10) / 10,
+            value: Math.round(total * 10) / 10,
           }));
 
           statsMap.set(competitor.id, {
@@ -473,9 +517,10 @@ const DashboardPage: React.FC = () => {
     }));
     setProgressData(progressItems);
 
-    // Calculate overall average
-    const avgScore = allGrades.length > 0
-      ? allGrades.reduce((sum, g) => sum + g.score, 0) / allGrades.length
+    // Calculate overall average: average of each competitor's average (which is already per-exam total)
+    const compAverages = Array.from(statsMap.values()).map((s) => s.average);
+    const avgScore = compAverages.length > 0
+      ? compAverages.reduce((sum, v) => sum + v, 0) / compAverages.length
       : 0;
     setOverallAverage(Math.round(avgScore * 10) / 10);
 

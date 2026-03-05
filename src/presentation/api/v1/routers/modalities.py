@@ -238,9 +238,25 @@ async def enroll_competitor(
 
     logger = logging.getLogger(__name__)
 
-    logger.info(
-        f"[Enroll] Creating enrollment: modality_id={modality_id}, competitor_id={data.competitor_id}, evaluator_id={data.evaluator_id}, current_user={current_user.id}"
-    )
+    # Resolve evaluator: use explicit value, otherwise look up the modality's assigned evaluator
+    resolved_evaluator_id = data.evaluator_id
+    if not resolved_evaluator_id:
+        from sqlalchemy import select
+
+        from src.infrastructure.database.models.modality_model import EvaluatorModalityModel
+
+        stmt = (
+            select(EvaluatorModalityModel)
+            .where(
+                EvaluatorModalityModel.modality_id == modality_id,
+                EvaluatorModalityModel.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        em_result = await db.execute(stmt)
+        em = em_result.scalar_one_or_none()
+        if em:
+            resolved_evaluator_id = em.evaluator_id
 
     use_case = EnrollCompetitorUseCase(
         modality_repository=SQLAlchemyModalityRepository(db),
@@ -250,7 +266,7 @@ async def enroll_competitor(
 
     dto = EnrollCompetitorDTO(
         competitor_id=data.competitor_id,
-        evaluator_id=data.evaluator_id or current_user.id,  # Default to current user
+        evaluator_id=resolved_evaluator_id,
         notes=data.notes,
     )
 

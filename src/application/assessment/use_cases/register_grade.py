@@ -55,6 +55,7 @@ class RegisterGradeUseCase:
         dto: RegisterGradeDTO,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        is_super_admin: bool = False,
     ) -> GradeDTO:
         """Register a grade.
 
@@ -112,8 +113,8 @@ class RegisterGradeUseCase:
             )
 
         # 4. Validate evaluator can grade this competitor (RN02)
-        # Evaluator must be assigned to the competitor's enrollment
-        if enrollment.evaluator_id != evaluator_id:
+        # Evaluator must be assigned to the competitor's enrollment (skipped for super_admin)
+        if not is_super_admin and enrollment.evaluator_id != evaluator_id:
             # Check if evaluator has another enrollment with this modality
             evaluator_enrollments = await self._enrollment_repository.get_by_evaluator(
                 evaluator_id=evaluator_id,

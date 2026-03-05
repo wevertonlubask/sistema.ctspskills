@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { competitorService, authService, modalityService, enrollmentService } from '../../services';
+import { api } from '../../services';
 import { useAuthStore } from '../../stores/authStore';
 import type { Competitor, Modality, EnrollmentDetail, User } from '../../types';
 
@@ -46,9 +47,12 @@ const CompetitorsPage: React.FC = () => {
   const [loadingEnrollments, setLoadingEnrollments] = useState(false);
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [selectedModalityForEnroll, setSelectedModalityForEnroll] = useState<string>('');
-  const [selectedEvaluator, setSelectedEvaluator] = useState<string>('');
-  const [evaluators, setEvaluators] = useState<User[]>([]);
   const [enrollingCompetitor, setEnrollingCompetitor] = useState(false);
+
+  // Delete state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [competitorToDelete, setCompetitorToDelete] = useState<Competitor | null>(null);
+  const [isDeletingCompetitor, setIsDeletingCompetitor] = useState(false);
 
   const {
     register,
@@ -111,18 +115,45 @@ const CompetitorsPage: React.FC = () => {
 
   const onSubmit = async (data: CompetitorFormData) => {
     try {
-      // Step 1: Create user with role 'competitor' using default password
-      const newUser = await authService.register({
-        email: data.email,
-        password: DEFAULT_PASSWORD,
-        full_name: data.full_name,
-        role: 'competitor',
-        must_change_password: true,
-      });
+      let userId: string;
+
+      try {
+        // Step 1: Create user with role 'competitor' using default password
+        const newUser = await authService.register({
+          email: data.email,
+          password: DEFAULT_PASSWORD,
+          full_name: data.full_name,
+          role: 'competitor',
+          must_change_password: true,
+        });
+        userId = newUser.id;
+      } catch (registerErr: any) {
+        if (registerErr?.response?.status === 409) {
+          // User already exists (e.g. orphaned after deletion) — find and reuse
+          const usersResp = await api.get<{ users: User[] }>('/users', {
+            params: { role: 'competitor', limit: 1000 },
+          });
+          const existing = usersResp.data.users.find(
+            (u) => u.email.toLowerCase() === data.email.toLowerCase()
+          );
+          if (!existing) throw registerErr;
+
+          // Make sure this user doesn't already have a competitor profile
+          const allComps = await competitorService.getAll({ limit: 1000 });
+          const alreadyHasProfile = allComps.competitors.some((c) => c.user_id === existing.id);
+          if (alreadyHasProfile) {
+            setError('Este email já está vinculado a um competidor ativo.');
+            return;
+          }
+          userId = existing.id;
+        } else {
+          throw registerErr;
+        }
+      }
 
       // Step 2: Create competitor profile linked to the user
       await competitorService.create({
-        user_id: newUser.id,
+        user_id: userId,
         full_name: data.full_name,
         birth_date: data.birth_date || undefined,
         document_number: data.document_number || undefined,
@@ -181,28 +212,12 @@ const CompetitorsPage: React.FC = () => {
 
   const handleOpenEnrollModal = async () => {
     setSelectedModalityForEnroll('');
-    setSelectedEvaluator('');
     setIsEnrollModalOpen(true);
-
-    // Fetch evaluators only for super admins
-    // Evaluators will auto-assign themselves
-    if (isSuperAdmin) {
-      try {
-        const response = await enrollmentService.getEvaluators();
-        setEvaluators(response.users || []);
-      } catch (err) {
-        console.error('Error fetching evaluators:', err);
-      }
-    } else {
-      // For evaluators, pre-select themselves as the evaluator
-      setSelectedEvaluator(user?.id || '');
-    }
   };
 
   const handleCloseEnrollModal = () => {
     setIsEnrollModalOpen(false);
     setSelectedModalityForEnroll('');
-    setSelectedEvaluator('');
   };
 
   const handleEnrollCompetitor = async () => {
@@ -210,15 +225,8 @@ const CompetitorsPage: React.FC = () => {
 
     setEnrollingCompetitor(true);
     try {
-      console.log('[Enrollment] Creating enrollment:', {
-        modalityId: selectedModalityForEnroll,
-        competitorId: selectedCompetitor.id,
-        evaluatorId: selectedEvaluator || undefined,
-      });
-
       const enrollmentResult = await enrollmentService.enrollCompetitor(selectedModalityForEnroll, {
         competitor_id: selectedCompetitor.id,
-        evaluator_id: selectedEvaluator || undefined,
       });
       console.log('[Enrollment] Created successfully:', enrollmentResult);
 
@@ -270,6 +278,33 @@ const CompetitorsPage: React.FC = () => {
     comp.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     comp.document_number?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleConfirmDelete = (competitor: Competitor) => {
+    setCompetitorToDelete(competitor);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteCompetitor = async () => {
+    if (!competitorToDelete) return;
+    setIsDeletingCompetitor(true);
+    try {
+      await competitorService.delete(competitorToDelete.id);
+      setCompetitors(prev => prev.filter(c => c.id !== competitorToDelete.id));
+      setSuccessMessage(`Competidor "${competitorToDelete.full_name}" excluído com sucesso.`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      // Close details modal if the deleted competitor was being viewed
+      if (selectedCompetitor?.id === competitorToDelete.id) {
+        setIsDetailsModalOpen(false);
+        setSelectedCompetitor(null);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Erro ao excluir competidor');
+    } finally {
+      setIsDeletingCompetitor(false);
+      setIsDeleteModalOpen(false);
+      setCompetitorToDelete(null);
+    }
+  };
 
   // Statistics
   const totalCompetitors = competitors.length;
@@ -324,6 +359,11 @@ const CompetitorsPage: React.FC = () => {
           <Button size="sm" variant="ghost" onClick={() => handleViewDetails(item)}>
             Ver Detalhes
           </Button>
+          {isSuperAdmin && (
+            <Button size="sm" variant="danger" onClick={() => handleConfirmDelete(item)}>
+              Excluir
+            </Button>
+          )}
         </div>
       ),
     },
@@ -581,6 +621,27 @@ const CompetitorsPage: React.FC = () => {
                   </Badge>
                 </div>
               </div>
+              {isSuperAdmin && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    const email = window.prompt(
+                      `Digite o email de login de "${selectedCompetitor.full_name}" para reconectar o perfil:`
+                    );
+                    if (!email) return;
+                    try {
+                      await competitorService.relinkUser(selectedCompetitor.id, email.trim());
+                      setSuccessMessage('Vínculo corrigido! O competidor já pode acessar normalmente.');
+                      setTimeout(() => setSuccessMessage(null), 5000);
+                    } catch (err: any) {
+                      setError(err?.response?.data?.detail || 'Erro ao corrigir vínculo');
+                    }
+                  }}
+                >
+                  Corrigir vínculo de usuário
+                </Button>
+              )}
             </div>
 
             {/* Account Info */}
@@ -815,34 +876,6 @@ const CompetitorsPage: React.FC = () => {
             )}
           </div>
 
-          {isSuperAdmin ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Avaliador Responsável
-              </label>
-              <select
-                value={selectedEvaluator}
-                onChange={(e) => setSelectedEvaluator(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-gray-100"
-              >
-                <option value="">Selecione um avaliador (opcional)</option>
-                {evaluators.map((evaluator) => (
-                  <option key={evaluator.id} value={evaluator.id}>
-                    {evaluator.full_name} ({evaluator.email})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                O avaliador será responsável por este competidor na modalidade selecionada.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
-              <p className="text-sm text-blue-700 dark:text-blue-300">
-                Você será automaticamente atribuído como avaliador responsável por este competidor.
-              </p>
-            </div>
-          )}
 
           <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button type="button" variant="secondary" onClick={handleCloseEnrollModal}>
@@ -854,6 +887,37 @@ const CompetitorsPage: React.FC = () => {
               disabled={!selectedModalityForEnroll}
             >
               Vincular
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => { setIsDeleteModalOpen(false); setCompetitorToDelete(null); }}
+        title="Excluir Competidor"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-700 dark:text-gray-300">
+            Tem certeza que deseja excluir o competidor{' '}
+            <strong>{competitorToDelete?.full_name}</strong>?
+            Esta ação não pode ser desfeita.
+          </p>
+          <div className="flex justify-end space-x-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <Button
+              variant="secondary"
+              onClick={() => { setIsDeleteModalOpen(false); setCompetitorToDelete(null); }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteCompetitor}
+              isLoading={isDeletingCompetitor}
+            >
+              Excluir
             </Button>
           </div>
         </div>
