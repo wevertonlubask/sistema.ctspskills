@@ -75,6 +75,7 @@ class GradeRepository(ABC):
         exam_id: UUID,
         competitor_id: UUID,
         competence_id: UUID,
+        sub_competence_id: UUID | None = None,
     ) -> bool:
         """Check if a grade exists for the given combination.
 
@@ -82,6 +83,7 @@ class GradeRepository(ABC):
             exam_id: Exam UUID.
             competitor_id: Competitor UUID.
             competence_id: Competence UUID.
+            sub_competence_id: Optional sub-competence UUID.
 
         Returns:
             True if grade already exists.

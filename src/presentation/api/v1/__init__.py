@@ -11,6 +11,7 @@ from src.presentation.api.v1.routers import (
     grades,
     modalities,
     platform,
+    sub_competences,
     training_types,
     trainings,
     users,
@@ -27,6 +28,7 @@ api_router.include_router(trainings.router, prefix="/trainings", tags=["Training
 api_router.include_router(training_types.router, prefix="/training-types", tags=["Training Types"])
 api_router.include_router(exams.router, prefix="/exams", tags=["Exams"])
 api_router.include_router(grades.router, prefix="/grades", tags=["Grades"])
+api_router.include_router(sub_competences.router, prefix="/competences", tags=["Sub-Competences"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(extras.router, prefix="/extras", tags=["Extras"])
 api_router.include_router(platform.router, prefix="/platform", tags=["Platform"])

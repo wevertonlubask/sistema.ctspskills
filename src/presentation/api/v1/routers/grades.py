@@ -53,6 +53,7 @@ def grade_dto_to_response(dto: Any) -> GradeResponse:
         exam_id=dto.exam_id,
         competitor_id=dto.competitor_id,
         competence_id=dto.competence_id,
+        sub_competence_id=getattr(dto, "sub_competence_id", None),
         score=dto.score,
         notes=dto.notes,
         created_by=dto.created_by,
@@ -89,6 +90,7 @@ async def register_grade(
         exam_id=data.exam_id,
         competitor_id=data.competitor_id,
         competence_id=data.competence_id,
+        sub_competence_id=data.sub_competence_id,
         score=data.score,
         notes=data.notes,
     )

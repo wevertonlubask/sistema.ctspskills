@@ -1,5 +1,5 @@
 import api from './api';
-import type { Exam, Grade, GradeStatistics, AssessmentType } from '@/types';
+import type { Exam, Grade, GradeStatistics, AssessmentType, SubCompetence } from '@/types';
 
 export interface CreateExamRequest {
   name: string;
@@ -24,6 +24,7 @@ export interface CreateGradeRequest {
   exam_id: string;
   competitor_id: string;
   competence_id: string;
+  sub_competence_id?: string;
   score: number;
   notes?: string;
 }
@@ -121,5 +122,48 @@ export const gradeService = {
       params: { modality_id: modalityId },
     });
     return response.data.average;
+  },
+};
+
+export interface CreateSubCompetenceRequest {
+  name: string;
+  description?: string;
+  max_score: number;
+  order?: number;
+}
+
+export interface UpdateSubCompetenceRequest {
+  name?: string;
+  description?: string;
+  max_score?: number;
+  order?: number;
+}
+
+export const subCompetenceService = {
+  async list(competenceId: string): Promise<SubCompetence[]> {
+    const response = await api.get<{ sub_competences: SubCompetence[]; total: number }>(
+      `/competences/${competenceId}/sub-competences`
+    );
+    return response.data.sub_competences;
+  },
+
+  async create(competenceId: string, data: CreateSubCompetenceRequest): Promise<SubCompetence> {
+    const response = await api.post<SubCompetence>(
+      `/competences/${competenceId}/sub-competences`,
+      data
+    );
+    return response.data;
+  },
+
+  async update(competenceId: string, subId: string, data: UpdateSubCompetenceRequest): Promise<SubCompetence> {
+    const response = await api.put<SubCompetence>(
+      `/competences/${competenceId}/sub-competences/${subId}`,
+      data
+    );
+    return response.data;
+  },
+
+  async delete(competenceId: string, subId: string): Promise<void> {
+    await api.delete(`/competences/${competenceId}/sub-competences/${subId}`);
   },
 };

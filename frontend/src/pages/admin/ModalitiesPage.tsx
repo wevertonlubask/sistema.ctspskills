@@ -358,11 +358,11 @@ const ModalitiesPage: React.FC = () => {
 
       setIsCompetenceModalOpen(false);
       await fetchCompetences(selectedModality.id);
-      setSuccessMessage('Competência adicionada com sucesso!');
+      setSuccessMessage('Critério de Avaliação adicionado com sucesso!');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Erro ao adicionar competência:', err);
-      const message = err?.response?.data?.detail || err?.message || 'Erro ao adicionar competência';
+      const message = err?.response?.data?.detail || err?.message || 'Erro ao adicionar critério de avaliação';
       setError(message);
     }
   };
@@ -375,11 +375,11 @@ const ModalitiesPage: React.FC = () => {
       setDeletingCompetenceId(competenceId);
       await modalityService.deleteCompetence(selectedModality.id, competenceId);
       await fetchCompetences(selectedModality.id);
-      setSuccessMessage('Competência removida com sucesso!');
+      setSuccessMessage('Critério de Avaliação removido com sucesso!');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Erro ao remover competência:', err);
-      const message = err?.response?.data?.detail || err?.message || 'Erro ao remover competência';
+      const message = err?.response?.data?.detail || err?.message || 'Erro ao remover critério de avaliação';
       setError(message);
     } finally {
       setIsDeletingCompetence(false);
@@ -588,7 +588,7 @@ const ModalitiesPage: React.FC = () => {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                       </svg>
-                      <span>{competences.length} competências</span>
+                      <span>{competences.length} critérios de avaliação</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-blue-100 text-xs">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -611,7 +611,7 @@ const ModalitiesPage: React.FC = () => {
                   <svg className="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
-                  Competências ({competences.length})
+                  Critérios de Avaliação ({competences.length})
                 </h4>
                 {isSuperAdmin && (
                   <Button size="sm" onClick={handleOpenCompetenceModal}>
@@ -632,7 +632,7 @@ const ModalitiesPage: React.FC = () => {
                   <svg className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm">Nenhuma competência cadastrada</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">Nenhum critério de avaliação cadastrado</p>
                   {isSuperAdmin && (
                     <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
                       Clique em "Adicionar" para cadastrar
@@ -677,7 +677,7 @@ const ModalitiesPage: React.FC = () => {
                             onClick={() => handleDeleteCompetence(competence.id)}
                             disabled={isDeletingCompetence && deletingCompetenceId === competence.id}
                             className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            title="Remover competência"
+                            title="Remover critério de avaliação"
                           >
                             {isDeletingCompetence && deletingCompetenceId === competence.id ? (
                               <Spinner size="sm" />
@@ -850,11 +850,11 @@ const ModalitiesPage: React.FC = () => {
       <Modal
         isOpen={isCompetenceModalOpen}
         onClose={() => setIsCompetenceModalOpen(false)}
-        title="Adicionar Competência"
+        title="Adicionar Critério de Avaliação"
       >
         <form onSubmit={handleSubmitCompetence(handleAddCompetence)} className="space-y-4">
           <Input
-            label="Nome da Competência"
+            label="Nome do Critério de Avaliação"
             placeholder="Ex: Leitura de Projetos"
             error={competenceErrors.name?.message}
             {...registerCompetence('name')}
@@ -862,7 +862,7 @@ const ModalitiesPage: React.FC = () => {
 
           <Input
             label="Descrição (opcional)"
-            placeholder="Descreva a competência"
+            placeholder="Descreva o critério de avaliação"
             error={competenceErrors.description?.message}
             {...registerCompetence('description')}
           />

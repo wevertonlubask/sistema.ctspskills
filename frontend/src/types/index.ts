@@ -68,6 +68,17 @@ export interface Competence {
   is_active: boolean;
 }
 
+export interface SubCompetence {
+  id: string;
+  competence_id: string;
+  name: string;
+  description?: string;
+  max_score: number;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Competitor Types
 export interface Competitor {
   id: string;
@@ -211,6 +222,7 @@ export interface Grade {
   exam_id: string;
   competitor_id: string;
   competence_id: string;
+  sub_competence_id?: string | null;
   score: number;
   notes?: string;
   created_by: string;
@@ -356,6 +368,31 @@ export interface UpdatePlatformSettingsRequest {
   platform_subtitle?: string;
   browser_title?: string;
   primary_color?: string;
+}
+
+// Competence Evolution Types (per-exam analytics)
+export interface CompetenceEvolutionPoint {
+  exam_id: string;
+  exam_name: string;
+  exam_date: string;
+  score: number;
+}
+
+export interface CompetenceEvolutionSeries {
+  label: string;
+  sub_competence_id: string | null;
+  max_score: number;
+  points: CompetenceEvolutionPoint[];
+}
+
+export interface CompetenceEvolutionData {
+  competitor_id: string;
+  competitor_name: string;
+  competence_id: string;
+  competence_name: string;
+  max_score: number;
+  has_sub_competences: boolean;
+  series: CompetenceEvolutionSeries[];
 }
 
 // API Response Types

@@ -16,6 +16,7 @@ class RegisterGradeDTO:
     competitor_id: UUID
     competence_id: UUID
     score: float
+    sub_competence_id: UUID | None = None
     notes: str | None = None
 
 
@@ -41,6 +42,7 @@ class GradeDTO:
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    sub_competence_id: UUID | None = None
 
     @classmethod
     def from_entity(cls, entity: Grade) -> "GradeDTO":
@@ -50,6 +52,7 @@ class GradeDTO:
             exam_id=entity.exam_id,
             competitor_id=entity.competitor_id,
             competence_id=entity.competence_id,
+            sub_competence_id=getattr(entity, "sub_competence_id", None),
             score=entity.score.value,
             notes=entity.notes,
             created_by=entity.created_by,

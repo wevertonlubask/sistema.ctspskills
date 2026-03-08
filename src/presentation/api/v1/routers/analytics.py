@@ -20,7 +20,16 @@ from src.application.analytics.use_cases import (
 )
 from src.application.analytics.use_cases.export_report import ExportFormat
 from src.domain.analytics.value_objects.metric_type import AggregationPeriod
+from fastapi import HTTPException
+from sqlalchemy import func, select
+
 from src.domain.identity.entities.user import User
+from src.infrastructure.database.models.assessment_model import ExamModel, GradeModel
+from src.infrastructure.database.models.modality_model import (
+    CompetenceModel,
+    CompetitorModel,
+    SubCompetenceModel,
+)
 from src.infrastructure.database.repositories import (
     SQLAlchemyAnalyticsRepository,
     SQLAlchemyCompetitorRepository,
@@ -33,6 +42,9 @@ from src.presentation.api.v1.dependencies.auth import (
 from src.presentation.api.v1.dependencies.database import get_db
 from src.presentation.schemas.analytics_schema import (
     CompetenceComparisonResponse,
+    CompetenceEvolutionResponse,
+    CompetenceEvolutionPoint,
+    CompetenceEvolutionSeries,
     CompetenceMapResponse,
     CompetenceScoreResponse,
     CompetitorSummaryResponse,
@@ -603,4 +615,195 @@ async def export_ranking(
         content=result.content,
         media_type=result.content_type,
         headers={"Content-Disposition": f'attachment; filename="{result.filename}"'},
+    )
+
+
+# =============================================================================
+# Competence Evolution Per Exam
+# =============================================================================
+
+
+@router.get(
+    "/competence-evolution/{competitor_id}/{competence_id}",
+    response_model=CompetenceEvolutionResponse,
+    summary="Get competence evolution per exam",
+    description="Get score evolution exam-by-exam for a competitor in a specific competence, with sub-competence breakdown.",
+)
+async def get_competence_evolution(
+    competitor_id: UUID,
+    competence_id: UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    modality_id: UUID | None = Query(default=None),
+) -> CompetenceEvolutionResponse:
+    """Get competence evolution per exam with optional sub-competence breakdown."""
+    competitor = await db.get(CompetitorModel, competitor_id)
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competidor não encontrado")
+
+    competence = await db.get(CompetenceModel, competence_id)
+    if not competence:
+        raise HTTPException(status_code=404, detail="Critério não encontrado")
+
+    # Load sub-competences
+    sub_stmt = (
+        select(SubCompetenceModel)
+        .where(SubCompetenceModel.competence_id == competence_id)
+        .order_by(SubCompetenceModel.order, SubCompetenceModel.created_at)
+    )
+    sub_result = await db.execute(sub_stmt)
+    sub_competences = sub_result.scalars().all()
+    has_subs = len(sub_competences) > 0
+
+    # Query all grades for this competitor + competence
+    grades_stmt = (
+        select(
+            GradeModel.score,
+            GradeModel.sub_competence_id,
+            ExamModel.id.label("exam_id"),
+            ExamModel.name.label("exam_name"),
+            ExamModel.exam_date,
+        )
+        .join(ExamModel, GradeModel.exam_id == ExamModel.id)
+        .where(
+            GradeModel.competitor_id == competitor_id,
+            GradeModel.competence_id == competence_id,
+        )
+        .order_by(ExamModel.exam_date, ExamModel.name)
+    )
+    if modality_id:
+        grades_stmt = grades_stmt.where(ExamModel.modality_id == modality_id)
+
+    grades_result = await db.execute(grades_stmt)
+    rows = grades_result.all()
+
+    # Build series
+    series: list[CompetenceEvolutionSeries] = []
+
+    if has_subs:
+        sub_grades: dict[UUID, list] = {}
+        for row in rows:
+            if row.sub_competence_id:
+                if row.sub_competence_id not in sub_grades:
+                    sub_grades[row.sub_competence_id] = []
+                sub_grades[row.sub_competence_id].append(row)
+
+        for sub in sub_competences:
+            points = [
+                CompetenceEvolutionPoint(
+                    exam_id=r.exam_id,
+                    exam_name=r.exam_name,
+                    exam_date=r.exam_date,
+                    score=r.score,
+                )
+                for r in sub_grades.get(sub.id, [])
+            ]
+            series.append(
+                CompetenceEvolutionSeries(
+                    label=sub.name,
+                    sub_competence_id=sub.id,
+                    max_score=sub.max_score,
+                    points=points,
+                )
+            )
+    else:
+        points = [
+            CompetenceEvolutionPoint(
+                exam_id=r.exam_id,
+                exam_name=r.exam_name,
+                exam_date=r.exam_date,
+                score=r.score,
+            )
+            for r in rows
+        ]
+        series.append(
+            CompetenceEvolutionSeries(
+                label=competence.name,
+                sub_competence_id=None,
+                max_score=competence.max_score,
+                points=points,
+            )
+        )
+
+    return CompetenceEvolutionResponse(
+        competitor_id=competitor_id,
+        competitor_name=competitor.full_name,
+        competence_id=competence_id,
+        competence_name=competence.name,
+        max_score=competence.max_score,
+        has_sub_competences=has_subs,
+        series=series,
+    )
+
+
+@router.get(
+    "/total-evolution/{competitor_id}",
+    response_model=CompetenceEvolutionResponse,
+    summary="Get total score evolution per exam",
+    description="Get total score (sum of all criteria) per exam for a competitor.",
+)
+async def get_total_evolution(
+    competitor_id: UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    modality_id: UUID | None = Query(default=None),
+) -> CompetenceEvolutionResponse:
+    """Get total score per exam (sum across all criteria)."""
+    competitor = await db.get(CompetitorModel, competitor_id)
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competidor não encontrado")
+
+    # Total max_score from modality competences
+    total_max = 100.0
+    if modality_id:
+        max_stmt = select(func.sum(CompetenceModel.max_score)).where(
+            CompetenceModel.modality_id == modality_id,
+        )
+        max_result = await db.execute(max_stmt)
+        total_max = float(max_result.scalar() or 100.0)
+
+    # Sum grades per exam
+    grades_stmt = (
+        select(
+            ExamModel.id.label("exam_id"),
+            ExamModel.name.label("exam_name"),
+            ExamModel.exam_date,
+            func.sum(GradeModel.score).label("total_score"),
+        )
+        .join(GradeModel, GradeModel.exam_id == ExamModel.id)
+        .where(GradeModel.competitor_id == competitor_id)
+        .group_by(ExamModel.id, ExamModel.name, ExamModel.exam_date)
+        .order_by(ExamModel.exam_date, ExamModel.name)
+    )
+    if modality_id:
+        grades_stmt = grades_stmt.where(ExamModel.modality_id == modality_id)
+
+    result = await db.execute(grades_stmt)
+    rows = result.all()
+
+    points = [
+        CompetenceEvolutionPoint(
+            exam_id=row.exam_id,
+            exam_name=row.exam_name,
+            exam_date=row.exam_date,
+            score=float(row.total_score),
+        )
+        for row in rows
+    ]
+
+    return CompetenceEvolutionResponse(
+        competitor_id=competitor_id,
+        competitor_name=competitor.full_name,
+        competence_id=UUID("00000000-0000-0000-0000-000000000000"),
+        competence_name="Nota Geral",
+        max_score=total_max,
+        has_sub_competences=False,
+        series=[
+            CompetenceEvolutionSeries(
+                label="Nota Total",
+                sub_competence_id=None,
+                max_score=total_max,
+                points=points,
+            )
+        ],
     )

@@ -131,6 +131,7 @@ class RegisterGradeUseCase:
             exam_id=dto.exam_id,
             competitor_id=dto.competitor_id,
             competence_id=dto.competence_id,
+            sub_competence_id=dto.sub_competence_id,
         )
         if exists:
             raise GradeAlreadyExistsException(
@@ -147,6 +148,7 @@ class RegisterGradeUseCase:
             exam_id=dto.exam_id,
             competitor_id=dto.competitor_id,
             competence_id=dto.competence_id,
+            sub_competence_id=dto.sub_competence_id,
             score=score,
             notes=dto.notes,
             created_by=evaluator_id,

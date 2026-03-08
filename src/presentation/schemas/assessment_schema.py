@@ -85,11 +85,12 @@ class RegisterGradeRequest(BaseModel):
     exam_id: UUID = Field(..., description="Exam ID")
     competitor_id: UUID = Field(..., description="Competitor ID")
     competence_id: UUID = Field(..., description="Competence ID")
+    sub_competence_id: UUID | None = Field(None, description="Sub-competence ID (optional, WorldSkills)")
     score: float = Field(
         ...,
         ge=0.0,
-        le=100.0,
-        description="Score value (0-100, RN03)",
+        le=10000.0,
+        description="Score value (validated against competence/sub-competence max_score)",
     )
     notes: str | None = Field(None, max_length=1000, description="Optional notes")
 
@@ -120,6 +121,7 @@ class GradeResponse(BaseModel):
     exam_id: UUID
     competitor_id: UUID
     competence_id: UUID
+    sub_competence_id: UUID | None = None
     score: float
     notes: str | None
     created_by: UUID
@@ -218,3 +220,44 @@ class CompetitorExamSummaryResponse(BaseModel):
     grades_count: int
     average: float | None
     weighted_average: float | None
+
+
+# Sub-Competence Schemas
+class CreateSubCompetenceRequest(BaseModel):
+    """Create sub-competence request schema."""
+
+    name: str = Field(..., min_length=2, max_length=255)
+    description: str | None = Field(None, max_length=1000)
+    max_score: float = Field(..., gt=0.0, le=10000.0)
+    order: int = Field(default=0, ge=0)
+
+
+class UpdateSubCompetenceRequest(BaseModel):
+    """Update sub-competence request schema."""
+
+    name: str | None = Field(None, min_length=2, max_length=255)
+    description: str | None = None
+    max_score: float | None = Field(None, gt=0.0, le=10000.0)
+    order: int | None = Field(None, ge=0)
+
+
+class SubCompetenceResponse(BaseModel):
+    """Sub-competence response schema."""
+
+    id: UUID
+    competence_id: UUID
+    name: str
+    description: str | None
+    max_score: float
+    order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SubCompetenceListResponse(BaseModel):
+    """Sub-competence list response schema."""
+
+    sub_competences: list[SubCompetenceResponse]
+    total: int

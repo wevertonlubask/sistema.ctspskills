@@ -188,7 +188,7 @@ export const GradeEntryForm: React.FC<GradeEntryFormProps> = ({
 
       <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
         <div className="text-sm text-gray-500 dark:text-gray-400">
-          Preencha as notas de cada competidor por competência
+          Preencha as notas de cada competidor por critério de avaliação
         </div>
         <div className="flex space-x-3">
           <Button type="button" variant="secondary" onClick={onCancel}>

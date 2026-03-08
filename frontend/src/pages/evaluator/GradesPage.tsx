@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardBody, Button, Table, Badge, Spinner, Alert, Modal } from '../../components/ui';
-import { gradeService, examService, modalityService, competitorService, enrollmentService } from '../../services';
+import { gradeService, examService, modalityService, competitorService, enrollmentService, subCompetenceService } from '../../services';
 import { useAuthStore } from '../../stores/authStore';
-import type { Grade, Exam, Competence, Competitor, Modality } from '../../types';
+import type { Grade, Exam, Competence, Competitor, Modality, SubCompetence } from '../../types';
 
 const GradesPage: React.FC = () => {
   const user = useAuthStore((state) => state.user);
@@ -21,6 +21,7 @@ const GradesPage: React.FC = () => {
   const [existingGrades, setExistingGrades] = useState<Grade[]>([]);
   const [isLoadingBulkData, setIsLoadingBulkData] = useState(false);
   const [isSavingBulkGrades, setIsSavingBulkGrades] = useState(false);
+  const [bulkSubCompetences, setBulkSubCompetences] = useState<Map<string, SubCompetence[]>>(new Map());
 
   // Filter state
   const [filterExamId, setFilterExamId] = useState<string>('');
@@ -33,7 +34,7 @@ const GradesPage: React.FC = () => {
   // Maps for displaying names
   const [competitorMap, setCompetitorMap] = useState<Map<string, string>>(new Map());
   const [examMap, setExamMap] = useState<Map<string, Exam>>(new Map());
-  const [competenceMap, setCompetenceMap] = useState<Map<string, string>>(new Map());
+  const [_competenceMap, setCompetenceMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     fetchInitialData();
@@ -132,6 +133,7 @@ const GradesPage: React.FC = () => {
     setBulkGradeExam(exam);
     setIsBulkGradeModalOpen(true);
     setIsLoadingBulkData(true);
+    setBulkSubCompetences(new Map());
 
     try {
       // Fetch competitors for the exam's modality
@@ -143,14 +145,25 @@ const GradesPage: React.FC = () => {
       const allCompetences = (modalityData as any)?.competences || [];
 
       // Filter competences to only those assigned to this exam
+      let examCompetences: Competence[];
       if (exam.competence_ids && exam.competence_ids.length > 0) {
-        const examCompetences = allCompetences.filter((c: Competence) =>
+        examCompetences = allCompetences.filter((c: Competence) =>
           exam.competence_ids.includes(c.id)
         );
-        setBulkCompetences(examCompetences);
       } else {
-        setBulkCompetences(allCompetences);
+        examCompetences = allCompetences;
       }
+      setBulkCompetences(examCompetences);
+
+      // Fetch sub-criteria for each competence
+      const subMap = new Map<string, SubCompetence[]>();
+      await Promise.all(examCompetences.map(async (c: Competence) => {
+        try {
+          const subs = await subCompetenceService.list(c.id);
+          if (subs.length > 0) subMap.set(c.id, subs);
+        } catch { /* ignore */ }
+      }));
+      setBulkSubCompetences(subMap);
 
       // Fetch existing grades for this exam
       const gradesResponse = await gradeService.getAll({ exam_id: exam.id });
@@ -159,7 +172,9 @@ const GradesPage: React.FC = () => {
       // Initialize bulk grades map with existing values
       const initialGrades = new Map<string, string>();
       (gradesResponse.grades || []).forEach((g: Grade) => {
-        const key = `${g.competitor_id}|${g.competence_id}`;
+        const key = g.sub_competence_id
+          ? `${g.competitor_id}|${g.competence_id}|${g.sub_competence_id}`
+          : `${g.competitor_id}|${g.competence_id}`;
         initialGrades.set(key, g.score.toString());
       });
       setBulkGrades(initialGrades);
@@ -178,10 +193,11 @@ const GradesPage: React.FC = () => {
     setBulkCompetences([]);
     setExistingGrades([]);
     setBulkGrades(new Map());
+    setBulkSubCompetences(new Map());
   };
 
-  const handleBulkGradeChange = (competitorId: string, competenceId: string, value: string) => {
-    const key = `${competitorId}|${competenceId}`;
+  const handleBulkGradeChange = (competitorId: string, competenceId: string, value: string, subCompetenceId?: string) => {
+    const key = subCompetenceId ? `${competitorId}|${competenceId}|${subCompetenceId}` : `${competitorId}|${competenceId}`;
     setBulkGrades(prev => {
       const newMap = new Map(prev);
       if (value === '' || value === null) {
@@ -193,13 +209,17 @@ const GradesPage: React.FC = () => {
     });
   };
 
-  const getBulkGradeValue = (competitorId: string, competenceId: string): string => {
-    const key = `${competitorId}|${competenceId}`;
+  const getBulkGradeValue = (competitorId: string, competenceId: string, subCompetenceId?: string): string => {
+    const key = subCompetenceId ? `${competitorId}|${competenceId}|${subCompetenceId}` : `${competitorId}|${competenceId}`;
     return bulkGrades.get(key) || '';
   };
 
-  const getExistingGrade = (competitorId: string, competenceId: string): Grade | undefined => {
-    return existingGrades.find(g => g.competitor_id === competitorId && g.competence_id === competenceId);
+  const getExistingGrade = (competitorId: string, competenceId: string, subCompetenceId?: string): Grade | undefined => {
+    return existingGrades.find(g =>
+      g.competitor_id === competitorId &&
+      g.competence_id === competenceId &&
+      (subCompetenceId ? g.sub_competence_id === subCompetenceId : !g.sub_competence_id)
+    );
   };
 
   const handleSaveBulkGrades = async () => {
@@ -212,8 +232,11 @@ const GradesPage: React.FC = () => {
     try {
       // Process updated/new grades from the map
       for (const [key, scoreStr] of bulkGrades.entries()) {
-        const [competitorId, competenceId] = key.split('|');
-        const existingGrade = getExistingGrade(competitorId, competenceId);
+        const parts = key.split('|');
+        const competitorId = parts[0];
+        const competenceId = parts[1];
+        const subCompetenceId = parts[2];
+        const existingGrade = getExistingGrade(competitorId, competenceId, subCompetenceId);
 
         // Empty field + existing grade → delete
         if (scoreStr === '' || scoreStr === null) {
@@ -230,7 +253,7 @@ const GradesPage: React.FC = () => {
         }
 
         const score = parseFloat(scoreStr);
-        if (isNaN(score) || score < 0 || score > 100) {
+        if (isNaN(score) || score < 0) {
           continue; // Skip invalid scores
         }
 
@@ -247,6 +270,7 @@ const GradesPage: React.FC = () => {
               exam_id: bulkGradeExam.id,
               competitor_id: competitorId,
               competence_id: competenceId,
+              sub_competence_id: subCompetenceId,
               score,
             });
             successCount++;
@@ -259,7 +283,9 @@ const GradesPage: React.FC = () => {
 
       // Delete grades that were cleared (existing but removed from the map)
       for (const existingGrade of existingGrades) {
-        const key = `${existingGrade.competitor_id}|${existingGrade.competence_id}`;
+        const key = existingGrade.sub_competence_id
+          ? `${existingGrade.competitor_id}|${existingGrade.competence_id}|${existingGrade.sub_competence_id}`
+          : `${existingGrade.competitor_id}|${existingGrade.competence_id}`;
         if (!bulkGrades.has(key)) {
           try {
             await gradeService.delete(existingGrade.id);
@@ -303,9 +329,6 @@ const GradesPage: React.FC = () => {
     return competitorMap.get(competitorId) || competitorId.slice(0, 8) + '...';
   };
 
-  const getCompetenceName = (competenceId: string) => {
-    return competenceMap.get(competenceId) || competenceId.slice(0, 8) + '...';
-  };
 
   // Calculate statistics
   const totalGrades = grades.length;
@@ -364,7 +387,7 @@ const GradesPage: React.FC = () => {
     },
     {
       key: 'count',
-      header: 'Competências',
+      header: 'Critérios de Avaliação',
       render: (item: GroupedGrade) => (
         <span className="text-sm text-gray-500 dark:text-gray-400">
           {item.count}
@@ -525,15 +548,15 @@ const GradesPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {/* Info about the exam */}
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+              <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-800/60 flex items-center justify-center">
+                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <div className="text-sm text-blue-700 dark:text-blue-300">
-                  <p className="font-medium mb-1">Lançamento em Massa</p>
-                  <p>Preencha as notas de todos os competidores de uma vez. Notas existentes serão atualizadas automaticamente.</p>
-                </div>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Lançamento em Massa</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">Preencha as notas de todos os competidores. Notas existentes serão atualizadas automaticamente.</p>
               </div>
             </div>
 
@@ -543,107 +566,210 @@ const GradesPage: React.FC = () => {
               </Alert>
             ) : bulkCompetences.length === 0 ? (
               <Alert type="warning">
-                Nenhuma competência cadastrada para esta modalidade. Cadastre as competências na modalidade primeiro.
+                Nenhum critério de avaliação cadastrado para esta modalidade. Cadastre os critérios de avaliação na modalidade primeiro.
               </Alert>
             ) : (
               <>
-                {/* Grid de notas */}
-                <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                    <thead className="bg-gray-50 dark:bg-gray-800">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky left-0 bg-gray-50 dark:bg-gray-800 z-10 min-w-[180px]">
-                          Competidor
-                        </th>
-                        {bulkCompetences.map((comp) => (
-                          <th
-                            key={comp.id}
-                            className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px]"
-                            title={comp.description || comp.name}
-                          >
-                            {comp.name.length > 15 ? comp.name.substring(0, 15) + '...' : comp.name}
-                            <span className="block text-gray-400 font-normal normal-case">
-                              (0-{comp.max_score})
-                            </span>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                      {bulkCompetitors.map((competitor, idx) => (
-                        <tr key={competitor.id} className={idx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800/50'}>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 sticky left-0 bg-inherit z-10 border-r border-gray-200 dark:border-gray-700">
-                            {competitor.full_name}
-                          </td>
-                          {bulkCompetences.map((comp) => {
-                            const existingGrade = getExistingGrade(competitor.id, comp.id);
-                            const currentValue = getBulkGradeValue(competitor.id, comp.id);
-                            const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
+                {/* Barra de progresso */}
+                {(() => {
+                  const hasAnySubs = bulkCompetences.some(comp => {
+                    const subs = bulkSubCompetences.get(comp.id);
+                    return subs && subs.length > 0;
+                  });
+                  const totalColumns = bulkCompetences.reduce((acc, comp) => {
+                    const subs = bulkSubCompetences.get(comp.id);
+                    return acc + (subs && subs.length > 0 ? subs.length : 1);
+                  }, 0);
+                  const totalCells = bulkCompetitors.length * totalColumns;
+                  const fillPct = totalCells > 0 ? Math.round((bulkGrades.size / totalCells) * 100) : 0;
+                  return (
+                    <>
+                      <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-200 dark:border-gray-700 px-4 py-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Progresso do preenchimento</span>
+                          <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{bulkGrades.size} / {totalCells} notas</span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full transition-all duration-500 ${fillPct >= 100 ? 'bg-emerald-500' : fillPct > 0 ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                            style={{ width: `${Math.min(fillPct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
 
-                            return (
-                              <td key={comp.id} className="px-2 py-2 text-center">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  step="0.1"
-                                  value={currentValue}
-                                  onChange={(e) => handleBulkGradeChange(competitor.id, comp.id, e.target.value)}
-                                  placeholder="-"
-                                  className={`w-20 text-center rounded-lg border px-2 py-1.5 text-sm transition-colors
-                                    ${existingGrade && !hasChanged
-                                      ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700'
-                                      : hasChanged
-                                        ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700'
-                                        : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
-                                    }
-                                    text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      {/* Tabela de notas */}
+                      <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-700 max-h-[440px]">
+                        <table className="min-w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                              <th
+                                rowSpan={hasAnySubs ? 2 : 1}
+                                className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider sticky left-0 bg-gray-100 dark:bg-gray-800 z-20 min-w-[160px] border-r-2 border-gray-300 dark:border-gray-600"
+                              >
+                                Competidor
+                              </th>
+                              {bulkCompetences.map((comp) => {
+                                const subs = bulkSubCompetences.get(comp.id);
+                                const hasSubs = subs && subs.length > 0;
+                                const colSpan = hasSubs ? subs.length : 1;
+                                const rowSpan = hasAnySubs && !hasSubs ? 2 : 1;
+                                return (
+                                  <th
+                                    key={comp.id}
+                                    colSpan={colSpan}
+                                    rowSpan={rowSpan}
+                                    className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 border-l border-gray-200 dark:border-gray-600"
+                                    title={comp.description || comp.name}
+                                  >
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="leading-tight">{comp.name}</span>
+                                      {!hasSubs && (
+                                        <span className="text-[10px] font-normal text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600/60 px-2 py-0.5 rounded-full">
+                                          0 – {comp.max_score}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                            {hasAnySubs && (
+                              <tr className="bg-indigo-50/60 dark:bg-indigo-900/10 border-b-2 border-gray-300 dark:border-gray-600">
+                                {bulkCompetences.map((comp) => {
+                                  const subs = bulkSubCompetences.get(comp.id);
+                                  if (!subs || subs.length === 0) return null;
+                                  return subs.map((sub) => (
+                                    <th
+                                      key={sub.id}
+                                      className="px-2 py-2 text-center border-l border-gray-200 dark:border-gray-600 min-w-[90px]"
+                                      title={`${comp.name} › ${sub.name}`}
+                                    >
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                                          {sub.name.length > 12 ? sub.name.substring(0, 12) + '…' : sub.name}
+                                        </span>
+                                        <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 rounded-full">
+                                          0 – {sub.max_score}
+                                        </span>
+                                      </div>
+                                    </th>
+                                  ));
+                                })}
+                              </tr>
+                            )}
+                          </thead>
+                          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                            {bulkCompetitors.map((competitor) => (
+                              <tr key={competitor.id} className="group hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors">
+                                <td className="px-3 py-2.5 whitespace-nowrap sticky left-0 bg-white dark:bg-gray-900 group-hover:bg-blue-50/50 dark:group-hover:bg-blue-900/10 z-10 border-r-2 border-gray-200 dark:border-gray-700 transition-colors">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-xs font-bold text-white">
+                                        {competitor.full_name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[110px]" title={competitor.full_name}>
+                                      {competitor.full_name}
+                                    </span>
+                                  </div>
+                                </td>
+                                {bulkCompetences.map((comp) => {
+                                  const subs = bulkSubCompetences.get(comp.id);
+                                  if (subs && subs.length > 0) {
+                                    return subs.map((sub) => {
+                                      const existingGrade = getExistingGrade(competitor.id, comp.id, sub.id);
+                                      const currentValue = getBulkGradeValue(competitor.id, comp.id, sub.id);
+                                      const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
+                                      return (
+                                        <td key={sub.id} className="px-2 py-2 text-center border-l border-gray-100 dark:border-gray-800">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max={sub.max_score}
+                                            step="0.1"
+                                            value={currentValue}
+                                            onChange={(e) => handleBulkGradeChange(competitor.id, comp.id, e.target.value, sub.id)}
+                                            placeholder="–"
+                                            className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold transition-all
+                                              [appearance:none] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none
+                                              focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 dark:focus:ring-offset-gray-900
+                                              ${existingGrade && !hasChanged
+                                                ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
+                                                : hasChanged
+                                                  ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
+                                                  : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
+                                              }`}
+                                          />
+                                        </td>
+                                      );
+                                    });
+                                  }
+                                  const existingGrade = getExistingGrade(competitor.id, comp.id);
+                                  const currentValue = getBulkGradeValue(competitor.id, comp.id);
+                                  const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
+                                  return (
+                                    <td key={comp.id} className="px-2 py-2 text-center border-l border-gray-100 dark:border-gray-800">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={comp.max_score}
+                                        step="0.1"
+                                        value={currentValue}
+                                        onChange={(e) => handleBulkGradeChange(competitor.id, comp.id, e.target.value)}
+                                        placeholder="–"
+                                        className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold transition-all
+                                          [appearance:none] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none
+                                          focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 dark:focus:ring-offset-gray-900
+                                          ${existingGrade && !hasChanged
+                                            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
+                                            : hasChanged
+                                              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
+                                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
+                                          }`}
+                                      />
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
 
-                {/* Legenda */}
-                <div className="flex items-center gap-6 text-xs text-gray-500 dark:text-gray-400">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-700"></div>
-                    <span>Nota já lançada</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700"></div>
-                    <span>Nota alterada</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded border border-gray-300 bg-white dark:bg-gray-700 dark:border-gray-600"></div>
-                    <span>Nova nota</span>
-                  </div>
-                </div>
-
-                {/* Resumo */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{bulkCompetitors.length}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Competidores</p>
+                {/* Legenda e Resumo */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded border-2 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 dark:border-emerald-600"></div>
+                      <span>Nota lançada</span>
                     </div>
-                    <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{bulkCompetences.length}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Competências</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/30 dark:border-amber-500"></div>
+                      <span>Nota alterada</span>
                     </div>
-                    <div>
-                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{bulkGrades.size}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Notas preenchidas</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded border-2 border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-600"></div>
+                      <span>Não preenchida</span>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs flex-shrink-0">
+                    <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-600 dark:text-gray-400 font-medium">
+                      {bulkCompetitors.length} competidores
+                    </span>
+                    <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-600 dark:text-gray-400 font-medium">
+                      {bulkCompetences.length} critérios
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full font-medium ${bulkGrades.size > 0 ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
+                      {bulkGrades.size} preenchidas
+                    </span>
                   </div>
                 </div>
 
                 {/* Botões */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                   <Button type="button" variant="secondary" onClick={handleCloseBulkGradeModal}>
                     Cancelar
                   </Button>

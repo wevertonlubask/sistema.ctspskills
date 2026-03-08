@@ -467,7 +467,7 @@ class TestGradeEndpoints:
         evaluator_token: str,
         setup_exam_with_competitor,
     ):
-        """Test that invalid score (RN03) is rejected."""
+        """Test that invalid score above MAX_SCORE (10000) is rejected."""
         exam = setup_exam_with_competitor["exam"]
         competitor = setup_exam_with_competitor["competitor"]
         competence = setup_exam_with_competitor["competence"]
@@ -478,7 +478,7 @@ class TestGradeEndpoints:
                 "exam_id": exam["id"],
                 "competitor_id": competitor["id"],
                 "competence_id": competence["id"],
-                "score": 150.0,  # Invalid - above 100
+                "score": 99999.0,  # Invalid - above MAX_SCORE (10000.0)
             },
             headers={"Authorization": f"Bearer {evaluator_token}"},
         )

@@ -138,6 +138,12 @@ class GradeModel(Base):
         nullable=False,
         index=True,
     )
+    sub_competence_id: Mapped[UUID | None] = mapped_column(
+        GUID,
+        ForeignKey("sub_competences.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     score: Mapped[float] = mapped_column(Float, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[UUID] = mapped_column(
@@ -177,6 +183,11 @@ class GradeModel(Base):
         "CompetenceModel",
         backref="grades",
     )
+    sub_competence: Mapped["SubCompetenceModel | None"] = relationship(
+        "SubCompetenceModel",
+        backref="grades",
+        foreign_keys=[sub_competence_id],
+    )
     creator: Mapped["UserModel"] = relationship(
         "UserModel",
         foreign_keys=[created_by],
@@ -192,11 +203,14 @@ class GradeModel(Base):
     )
 
     __table_args__ = (
+        # Note: production uses partial unique indexes (via migration 0010).
+        # This constraint (with sub_competence_id) is used only in test SQLite setup.
         UniqueConstraint(
             "exam_id",
             "competitor_id",
             "competence_id",
-            name="uq_grades_exam_competitor_competence",
+            "sub_competence_id",
+            name="uq_grades_exam_competitor_competence_sub",
         ),
         Index("ix_grades_exam_competitor", "exam_id", "competitor_id"),
         Index("ix_grades_exam_competence", "exam_id", "competence_id"),
@@ -265,5 +279,6 @@ from src.infrastructure.database.models.modality_model import (  # noqa: E402
     CompetenceModel,
     CompetitorModel,
     ModalityModel,
+    SubCompetenceModel,
 )
 from src.infrastructure.database.models.user_model import UserModel  # noqa: E402

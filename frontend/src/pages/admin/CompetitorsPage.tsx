@@ -22,6 +22,8 @@ const competitorSchema = z.object({
   emergency_contact: z.string().optional(),
   emergency_phone: z.string().optional(),
   notes: z.string().optional(),
+  // Modality enrollment on creation
+  modality_id: z.string().optional(),
 });
 
 type CompetitorFormData = z.infer<typeof competitorSchema>;
@@ -152,7 +154,7 @@ const CompetitorsPage: React.FC = () => {
       }
 
       // Step 2: Create competitor profile linked to the user
-      await competitorService.create({
+      const createdCompetitor = await competitorService.create({
         user_id: userId,
         full_name: data.full_name,
         birth_date: data.birth_date || undefined,
@@ -162,6 +164,13 @@ const CompetitorsPage: React.FC = () => {
         emergency_phone: data.emergency_phone || undefined,
         notes: data.notes || undefined,
       });
+
+      // Step 3: Enroll in selected modality (if chosen)
+      if (data.modality_id) {
+        await enrollmentService.enrollCompetitor(data.modality_id, {
+          competitor_id: createdCompetitor.id,
+        });
+      }
 
       setIsModalOpen(false);
       reset();
@@ -584,6 +593,32 @@ const CompetitorsPage: React.FC = () => {
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-gray-100"
               placeholder="Informações adicionais sobre o competidor..."
             />
+          </div>
+
+          {/* Modality Enrollment Section */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center">
+              <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              Modalidade
+            </h3>
+            <select
+              {...register('modality_id')}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-gray-100"
+            >
+              <option value="">{isSuperAdmin ? 'Selecione uma modalidade (opcional)' : 'Selecione a modalidade'}</option>
+              {modalities.map((modality) => (
+                <option key={modality.id} value={modality.id}>
+                  [{modality.code}] {modality.name}
+                </option>
+              ))}
+            </select>
+            {modalities.length === 0 && (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                Nenhuma modalidade disponível.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">

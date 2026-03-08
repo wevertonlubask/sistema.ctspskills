@@ -465,7 +465,7 @@ export async function generateCompetitorReport(
       doc,
       [
         { header: 'Avaliação', dataKey: 'exam_name', width: 50 },
-        { header: 'Competência', dataKey: 'competence_name', width: 50 },
+        { header: 'Critério de Avaliação', dataKey: 'competence_name', width: 50 },
         { header: 'Nota', dataKey: 'score', width: 20 },
         { header: 'Data', dataKey: 'date', width: 25 },
       ],

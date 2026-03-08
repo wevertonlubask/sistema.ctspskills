@@ -11,6 +11,7 @@ class Grade(AggregateRoot[UUID]):
     """Grade aggregate root representing a competitor's score on a competence.
 
     Each grade links an exam, competitor, and competence with a score.
+    Supports optional sub_competence_id for WorldSkills sub-criteria grading.
     Includes audit fields for tracking who created/updated the grade.
     """
 
@@ -23,6 +24,7 @@ class Grade(AggregateRoot[UUID]):
         created_by: UUID,
         notes: str | None = None,
         updated_by: UUID | None = None,
+        sub_competence_id: UUID | None = None,
         id: UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -45,6 +47,7 @@ class Grade(AggregateRoot[UUID]):
         self._exam_id = exam_id
         self._competitor_id = competitor_id
         self._competence_id = competence_id
+        self._sub_competence_id = sub_competence_id
         self._score = score
         self._created_by = created_by
         self._notes = notes.strip() if notes else None
@@ -64,6 +67,11 @@ class Grade(AggregateRoot[UUID]):
     def competence_id(self) -> UUID:
         """Get competence ID."""
         return self._competence_id
+
+    @property
+    def sub_competence_id(self) -> UUID | None:
+        """Get sub-competence ID (optional, for WorldSkills sub-criteria)."""
+        return self._sub_competence_id
 
     @property
     def score(self) -> Score:

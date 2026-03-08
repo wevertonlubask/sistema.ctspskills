@@ -117,6 +117,37 @@ class TrainingHoursChartResponse(BaseModel):
     summary: TrainingHoursSummaryResponse
 
 
+# Competence Evolution Per Exam Schemas
+class CompetenceEvolutionPoint(BaseModel):
+    """One data point: score in a specific exam."""
+
+    exam_id: UUID
+    exam_name: str
+    exam_date: date
+    score: float
+
+
+class CompetenceEvolutionSeries(BaseModel):
+    """Evolution series for one sub-competence (or the direct competence)."""
+
+    label: str
+    sub_competence_id: UUID | None = None
+    max_score: float
+    points: list[CompetenceEvolutionPoint]
+
+
+class CompetenceEvolutionResponse(BaseModel):
+    """Competence evolution per exam response."""
+
+    competitor_id: UUID
+    competitor_name: str
+    competence_id: UUID
+    competence_name: str
+    max_score: float
+    has_sub_competences: bool
+    series: list[CompetenceEvolutionSeries]
+
+
 # Dashboard Summary Schemas
 class CompetitorSummaryResponse(BaseModel):
     """Competitor dashboard summary response."""

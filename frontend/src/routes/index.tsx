@@ -21,6 +21,7 @@ const MyGradesPage = lazy(() => import('../pages/competitor/MyGradesPage'));
 const ProfilePage = lazy(() => import('../pages/competitor/ProfilePage'));
 const SimuladosDashboard = lazy(() => import('../pages/evaluator/SimuladosDashboard'));
 const ReportsPage = lazy(() => import('../pages/evaluator/ReportsPage'));
+const CompetitorEvolutionPage = lazy(() => import('../pages/evaluator/CompetitorEvolutionPage'));
 const UnauthorizedPage = lazy(() => import('../pages/UnauthorizedPage'));
 
 const LoadingFallback = () => (
@@ -69,6 +70,14 @@ export const AppRoutes: React.FC = () => {
             element={
               <ProtectedRoute allowedRoles={['super_admin', 'evaluator']}>
                 <SimuladosDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/evolution"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin', 'evaluator', 'competitor']}>
+                <CompetitorEvolutionPage />
               </ProtectedRoute>
             }
           />

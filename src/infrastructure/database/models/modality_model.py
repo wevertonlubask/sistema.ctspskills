@@ -121,8 +121,57 @@ class CompetenceModel(Base):
         "ModalityModel",
         back_populates="competences",
     )
+    sub_competences: Mapped[list["SubCompetenceModel"]] = relationship(
+        "SubCompetenceModel",
+        back_populates="competence",
+        cascade="all, delete-orphan",
+        order_by="SubCompetenceModel.order",
+    )
 
     __table_args__ = (Index("ix_competences_modality_name", "modality_id", "name", unique=True),)
+
+
+class SubCompetenceModel(Base):
+    """Sub-competence database model (WorldSkills sub-criteria)."""
+
+    __tablename__ = "sub_competences"
+
+    id: Mapped[UUID] = mapped_column(
+        GUID,
+        primary_key=True,
+        default=uuid4,
+    )
+    competence_id: Mapped[UUID] = mapped_column(
+        GUID,
+        ForeignKey("competences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    max_score: Mapped[float] = mapped_column(Float, default=10.0, nullable=False)
+    order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    # Relationships
+    competence: Mapped[CompetenceModel] = relationship(
+        "CompetenceModel",
+        back_populates="sub_competences",
+    )
+
+    __table_args__ = (
+        Index("ix_sub_competences_competence_order", "competence_id", "order"),
+    )
 
 
 class CompetitorModel(Base):

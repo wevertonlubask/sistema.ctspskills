@@ -5,14 +5,14 @@ from src.shared.exceptions import InvalidValueException
 
 
 class Score(ValueObject):
-    """Score value object representing a grade (0-100 normalized scale).
+    """Score value object representing a grade.
 
-    The score is stored as a percentage (0-100) and can be converted
-    to an absolute value based on the competence's max_score.
+    Supports both percentage-based (0-100) and absolute scores (up to 10000)
+    to accommodate WorldSkills sub-criteria grading.
     """
 
     MIN_SCORE = 0.0
-    MAX_SCORE = 100.0
+    MAX_SCORE = 10000.0
 
     def __init__(self, value: float) -> None:
         """Initialize Score value object.

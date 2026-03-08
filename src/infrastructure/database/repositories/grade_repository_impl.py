@@ -24,6 +24,7 @@ class SQLAlchemyGradeRepository(GradeRepository):
             exam_id=model.exam_id,
             competitor_id=model.competitor_id,
             competence_id=model.competence_id,
+            sub_competence_id=model.sub_competence_id,
             score=Score(model.score),
             notes=model.notes,
             created_by=model.created_by,
@@ -39,6 +40,7 @@ class SQLAlchemyGradeRepository(GradeRepository):
             exam_id=entity.exam_id,
             competitor_id=entity.competitor_id,
             competence_id=entity.competence_id,
+            sub_competence_id=entity.sub_competence_id,
             score=entity.score.value,
             notes=entity.notes,
             created_by=entity.created_by,
@@ -102,6 +104,7 @@ class SQLAlchemyGradeRepository(GradeRepository):
         exam_id: UUID,
         competitor_id: UUID,
         competence_id: UUID,
+        sub_competence_id: UUID | None = None,
     ) -> bool:
         """Check if a grade exists for the given combination."""
         stmt = select(func.count(GradeModel.id)).where(
@@ -109,6 +112,10 @@ class SQLAlchemyGradeRepository(GradeRepository):
             GradeModel.competitor_id == competitor_id,
             GradeModel.competence_id == competence_id,
         )
+        if sub_competence_id is not None:
+            stmt = stmt.where(GradeModel.sub_competence_id == sub_competence_id)
+        else:
+            stmt = stmt.where(GradeModel.sub_competence_id.is_(None))
         result = await self._session.execute(stmt)
         return (result.scalar() or 0) > 0
 
