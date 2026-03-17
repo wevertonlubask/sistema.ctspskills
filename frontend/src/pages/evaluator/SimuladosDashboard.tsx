@@ -20,6 +20,8 @@ interface CompetitorEvolution {
   competitorId: string;
   competitorName: string;
   data: Array<{
+    examId: string;
+    modalityId: string;
     simuladoName: string;
     date: string;
     score: number;
@@ -118,7 +120,7 @@ const SimuladosDashboard: React.FC = () => {
   const fetchGradesAndBuildEvolution = async (simuladoExams: Exam[], _modalitiesData: Modality[]) => {
     try {
       // Collect all unique competitor IDs from grades
-      const competitorGradesMap = new Map<string, Array<{ examId: string; examName: string; examDate: string; score: number }>>();
+      const competitorGradesMap = new Map<string, Array<{ examId: string; examName: string; examDate: string; modalityId: string; score: number }>>();
       const competitorIdsSet = new Set<string>();
 
       // Fetch grades for each simulado
@@ -149,6 +151,7 @@ const SimuladosDashboard: React.FC = () => {
               examId: exam.id,
               examName: exam.name,
               examDate: exam.exam_date,
+              modalityId: exam.modality_id,
               score: avgScore,
             });
           });
@@ -184,6 +187,8 @@ const SimuladosDashboard: React.FC = () => {
           competitorId: competitor.id,
           competitorName: competitor.full_name,
           data: examsData.map(ed => ({
+            examId: ed.examId,
+            modalityId: ed.modalityId,
             simuladoName: ed.examName,
             date: ed.examDate,
             score: Math.round(ed.score * 10) / 10,
@@ -200,9 +205,15 @@ const SimuladosDashboard: React.FC = () => {
   };
 
   const buildEvolutionData = () => {
-    // Filter evolution data based on selected modality
-    // This would require tracking which competitor belongs to which modality
-    // For now, we'll show all competitors
+    // Reset selected competitors to those who have data in the selected modality
+    const competitorsWithData = evolutionData
+      .filter(c =>
+        selectedModality === 'all'
+          ? true
+          : c.data.some(d => d.modalityId === selectedModality)
+      )
+      .map(c => c.competitorId);
+    setSelectedCompetitors(competitorsWithData);
   };
 
   // Filter simulados by modality
@@ -210,9 +221,15 @@ const SimuladosDashboard: React.FC = () => {
     ? simulados
     : simulados.filter(s => s.modalityId === selectedModality);
 
-  const filteredEvolutionData = evolutionData.filter(
-    c => selectedCompetitors.includes(c.competitorId)
-  );
+  // Filtra evolução: só exames da modalidade selecionada, só competidores selecionados
+  const filteredEvolutionData = evolutionData
+    .map(c => ({
+      ...c,
+      data: selectedModality === 'all'
+        ? c.data
+        : c.data.filter(d => d.modalityId === selectedModality),
+    }))
+    .filter(c => c.data.length > 0 && selectedCompetitors.includes(c.competitorId));
 
   // Calculate statistics from filtered simulados
   const totalSimulados = filteredSimulados.length;
@@ -339,12 +356,15 @@ const SimuladosDashboard: React.FC = () => {
                 ]}
               />
             </div>
-            {evolutionData.length > 0 && (
+            {filteredEvolutionData.length > 0 && (
               <CompetitorSelect
-                competitors={evolutionData.map(c => ({
-                  id: c.competitorId,
-                  name: c.competitorName,
-                }))}
+                competitors={evolutionData
+                  .filter(c =>
+                    selectedModality === 'all'
+                      ? true
+                      : c.data.some(d => d.modalityId === selectedModality)
+                  )
+                  .map(c => ({ id: c.competitorId, name: c.competitorName }))}
                 selected={selectedCompetitors}
                 onChange={setSelectedCompetitors}
               />

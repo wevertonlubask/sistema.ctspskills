@@ -25,6 +25,7 @@ from src.infrastructure.database.models.modality_model import (
     CompetitorModel,
     EnrollmentModel,
     ModalityModel,
+    SubCompetenceModel,
 )
 from src.infrastructure.database.models.training_model import TrainingSessionModel
 
@@ -334,28 +335,82 @@ class SQLAlchemyAnalyticsRepository(AnalyticsRepository):
         date_range: DateRange | None = None,
         limit: int = 50,
     ) -> Ranking:
-        """Get competitor ranking for a modality."""
-        # Query average grades per competitor
-        stmt = (
-            select(
-                GradeModel.competitor_id,
-                CompetitorModel.full_name,
-                func.avg(GradeModel.score).label("avg_score"),
-            )
-            .join(CompetitorModel, GradeModel.competitor_id == CompetitorModel.id)
-            .join(ExamModel, GradeModel.exam_id == ExamModel.id)
-            .where(ExamModel.modality_id == modality_id)
-        )
+        """Get competitor ranking for a modality.
 
+        Scoring logic (matches what the bar chart should show):
+          - Sub-competence grade  → normalize to 0-100: (score / sub.max_score) * 100
+          - Direct competence grade → use score as-is (already 0-100)
+          - Per exam: average of all competence normalized scores
+          - Overall: average across all exams
+        """
+        from sqlalchemy import case, literal
+
+        date_filter = []
         if date_range:
-            stmt = stmt.where(
+            date_filter = [
                 ExamModel.exam_date >= date_range.start_date,
                 ExamModel.exam_date <= date_range.end_date,
-            )
+            ]
 
-        stmt = stmt.group_by(GradeModel.competitor_id, CompetitorModel.full_name)
-        stmt = stmt.order_by(func.avg(GradeModel.score).desc())
-        stmt = stmt.limit(limit)
+        # Normalized score per grade row
+        normalized_score = case(
+            (
+                GradeModel.sub_competence_id.isnot(None),
+                (GradeModel.score / func.nullif(SubCompetenceModel.max_score, literal(0))) * 100,
+            ),
+            else_=GradeModel.score,
+        ).label("normalized_score")
+
+        # Step 1: normalized score per grade
+        grade_norm = (
+            select(
+                GradeModel.competitor_id,
+                GradeModel.exam_id,
+                GradeModel.competence_id,
+                normalized_score,
+            )
+            .outerjoin(SubCompetenceModel, GradeModel.sub_competence_id == SubCompetenceModel.id)
+            .join(ExamModel, GradeModel.exam_id == ExamModel.id)
+            .where(ExamModel.modality_id == modality_id, *date_filter)
+        ).subquery("grade_norm")
+
+        # Step 2: average per competence per exam (handles multiple sub-grades → one competence score)
+        comp_avg = (
+            select(
+                grade_norm.c.competitor_id,
+                grade_norm.c.exam_id,
+                grade_norm.c.competence_id,
+                func.avg(grade_norm.c.normalized_score).label("comp_score"),
+            )
+            .group_by(
+                grade_norm.c.competitor_id,
+                grade_norm.c.exam_id,
+                grade_norm.c.competence_id,
+            )
+        ).subquery("comp_avg")
+
+        # Step 3: average per exam (all competences)
+        exam_avg = (
+            select(
+                comp_avg.c.competitor_id,
+                comp_avg.c.exam_id,
+                func.avg(comp_avg.c.comp_score).label("exam_score"),
+            )
+            .group_by(comp_avg.c.competitor_id, comp_avg.c.exam_id)
+        ).subquery("exam_avg")
+
+        # Step 4: average across exams per competitor
+        stmt = (
+            select(
+                exam_avg.c.competitor_id,
+                CompetitorModel.full_name,
+                func.avg(exam_avg.c.exam_score).label("avg_score"),
+            )
+            .join(CompetitorModel, exam_avg.c.competitor_id == CompetitorModel.id)
+            .group_by(exam_avg.c.competitor_id, CompetitorModel.full_name)
+            .order_by(func.avg(exam_avg.c.exam_score).desc())
+            .limit(limit)
+        )
 
         result = await self._session.execute(stmt)
         rows = result.all()

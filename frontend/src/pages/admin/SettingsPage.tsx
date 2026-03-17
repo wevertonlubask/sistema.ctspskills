@@ -23,12 +23,10 @@ const SettingsPage: React.FC = () => {
 
   // File refs
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const logoCollapsedInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
 
   // Upload states
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [uploadingLogoCollapsed, setUploadingLogoCollapsed] = useState(false);
   const [uploadingFavicon, setUploadingFavicon] = useState(false);
 
   useEffect(() => {
@@ -187,7 +185,7 @@ const SettingsPage: React.FC = () => {
       <Card>
         <CardHeader>Logos e Favicon</CardHeader>
         <CardBody>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Main Logo */}
             <div className="space-y-3">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -231,56 +229,6 @@ const SettingsPage: React.FC = () => {
               </Button>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 JPG, PNG, SVG ou WebP. Máx 2MB.
-              </p>
-            </div>
-
-            {/* Collapsed Logo */}
-            <div className="space-y-3">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Logo Recolhido
-              </label>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Exibido quando o menu lateral está recolhido
-              </p>
-              <div className="h-32 w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex items-center justify-center bg-gray-50 dark:bg-gray-800">
-                {settings?.logo_collapsed_url ? (
-                  <img
-                    src={settings.logo_collapsed_url}
-                    alt="Logo Collapsed"
-                    className="max-h-20 max-w-20 object-contain"
-                  />
-                ) : (
-                  <span className="text-gray-400">Nenhum logo</span>
-                )}
-              </div>
-              <input
-                ref={logoCollapsedInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/svg+xml,image/webp"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleFileUpload(
-                      file,
-                      platformSettingsService.uploadLogoCollapsed,
-                      setUploadingLogoCollapsed
-                    );
-                  }
-                  e.target.value = '';
-                }}
-                className="hidden"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => logoCollapsedInputRef.current?.click()}
-                isLoading={uploadingLogoCollapsed}
-                className="w-full"
-              >
-                {uploadingLogoCollapsed ? 'Enviando...' : 'Alterar Logo'}
-              </Button>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Ideal: quadrado, 64x64px
               </p>
             </div>
 

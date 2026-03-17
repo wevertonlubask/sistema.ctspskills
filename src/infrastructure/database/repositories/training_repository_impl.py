@@ -180,6 +180,8 @@ class SQLAlchemyTrainingRepository(TrainingRepository):
         skip: int = 0,
         limit: int = 100,
         status: TrainingStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[TrainingSession]:
         """Get training sessions by modality."""
         stmt = (
@@ -190,6 +192,10 @@ class SQLAlchemyTrainingRepository(TrainingRepository):
 
         if status:
             stmt = stmt.where(TrainingSessionModel.status == status.value)
+        if start_date:
+            stmt = stmt.where(TrainingSessionModel.training_date >= start_date)
+        if end_date:
+            stmt = stmt.where(TrainingSessionModel.training_date <= end_date)
 
         stmt = stmt.order_by(TrainingSessionModel.training_date.desc())
         stmt = stmt.offset(skip).limit(limit)
@@ -204,6 +210,8 @@ class SQLAlchemyTrainingRepository(TrainingRepository):
         skip: int = 0,
         limit: int = 100,
         status: TrainingStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[TrainingSession]:
         """Get training sessions pending validation by an evaluator."""
         # Get training sessions for competitors assigned to this evaluator
@@ -221,6 +229,10 @@ class SQLAlchemyTrainingRepository(TrainingRepository):
 
         if status:
             stmt = stmt.where(TrainingSessionModel.status == status.value)
+        if start_date:
+            stmt = stmt.where(TrainingSessionModel.training_date >= start_date)
+        if end_date:
+            stmt = stmt.where(TrainingSessionModel.training_date <= end_date)
 
         stmt = stmt.order_by(TrainingSessionModel.training_date.desc())
         stmt = stmt.offset(skip).limit(limit)

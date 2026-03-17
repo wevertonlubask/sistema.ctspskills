@@ -47,6 +47,8 @@ class ListTrainingsUseCase:
                 skip=skip,
                 limit=limit,
                 status=status,
+                start_date=start_date,
+                end_date=end_date,
             )
             # Count is approximate for evaluator filter
             total = len(trainings) + skip
@@ -71,6 +73,8 @@ class ListTrainingsUseCase:
                 skip=skip,
                 limit=limit,
                 status=status,
+                start_date=start_date,
+                end_date=end_date,
             )
             total = await self._training_repository.count(
                 modality_id=modality_id,

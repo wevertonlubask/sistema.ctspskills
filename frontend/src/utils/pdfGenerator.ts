@@ -563,6 +563,7 @@ export async function generateModalityReport(
 
 export interface AttendanceReportData {
   modality_name?: string;
+  competitor_name?: string;
   filterType: 'senai' | 'external' | 'all';
   startDate?: string;
   endDate?: string;
@@ -593,6 +594,8 @@ export async function generateAttendanceReport(
     all: 'Todos',
   };
 
+  const isSingleCompetitor = !!data.competitor_name;
+
   const doc = await createPDF({
     ...headerOptions,
     title: 'Relatório de Presença',
@@ -601,78 +604,112 @@ export async function generateAttendanceReport(
 
   let y = 45;
 
-  // Summary
-  y = addSectionTitle(doc, 'RESUMO DE PRESENÇA', y);
-  y = addInfoBlock(doc, [
-    { label: 'Total de Sessões', value: data.totalSessions },
-    { label: 'Total de Horas', value: `${data.totalHours.toFixed(1)}h` },
-    { label: 'Tipo Filtrado', value: filterLabels[data.filterType] },
-    { label: 'Competidores Envolvidos', value: data.byCompetitor.length },
-  ], y);
+  const typeLabels: Record<string, string> = {
+    senai: 'SENAI',
+    external: 'Externo',
+    empresa: 'Empresa',
+    autonomo: 'Autônomo',
+  };
+  const statusLabels: Record<string, string> = {
+    pending: 'Pendente',
+    approved: 'Aprovado',
+    rejected: 'Rejeitado',
+    validated: 'Validado',
+  };
 
-  // By competitor summary
-  if (data.byCompetitor.length > 0) {
-    y = checkPageBreak(doc, y, 30);
-    y = addSectionTitle(doc, 'RESUMO POR COMPETIDOR', y);
-    y = addTable(
-      doc,
-      [
-        { header: 'Competidor', dataKey: 'name', width: 70 },
-        { header: 'Sessões', dataKey: 'sessions', width: 25 },
-        { header: 'Horas', dataKey: 'hours', width: 25 },
-      ],
-      data.byCompetitor
-        .sort((a, b) => b.hours - a.hours)
-        .map((c) => ({
-          name: c.name,
-          sessions: c.sessions,
-          hours: c.hours.toFixed(1),
+  if (isSingleCompetitor) {
+    // ── Layout individual ──────────────────────────────────────────────────
+    y = addSectionTitle(doc, 'RESUMO DE PRESENÇA', y);
+    y = addInfoBlock(doc, [
+      { label: 'Competidor', value: data.competitor_name! },
+      { label: 'Total de Sessões', value: data.totalSessions },
+      { label: 'Total de Horas', value: `${data.totalHours.toFixed(1)}h` },
+      { label: 'Tipo Filtrado', value: filterLabels[data.filterType] },
+      ...(data.modality_name ? [{ label: 'Modalidade', value: data.modality_name }] : []),
+    ], y);
+
+    if (data.trainings.length > 0) {
+      y = checkPageBreak(doc, y, 30);
+      y = addSectionTitle(doc, 'SESSÕES DE TREINAMENTO', y);
+      y = addTable(
+        doc,
+        [
+          { header: 'Data', dataKey: 'date', width: 28 },
+          { header: 'Horas', dataKey: 'hours', width: 18 },
+          { header: 'Tipo', dataKey: 'type', width: 25 },
+          { header: 'Local', dataKey: 'location', width: 55 },
+          { header: 'Status', dataKey: 'status', width: 26 },
+        ],
+        data.trainings.map((t) => ({
+          date: formatDate(t.date),
+          hours: t.hours.toFixed(1),
+          type: typeLabels[t.type] || t.type,
+          location: t.location || '-',
+          status: statusLabels[t.status] || t.status,
         })),
-      y
-    );
+        y
+      );
+    } else {
+      y = checkPageBreak(doc, y, 20);
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text('Nenhuma sessão de treinamento encontrada para este competidor.', 14, y);
+      y += 10;
+    }
+  } else {
+    // ── Layout multi-competidor ────────────────────────────────────────────
+    y = addSectionTitle(doc, 'RESUMO DE PRESENÇA', y);
+    y = addInfoBlock(doc, [
+      { label: 'Total de Sessões', value: data.totalSessions },
+      { label: 'Total de Horas', value: `${data.totalHours.toFixed(1)}h` },
+      { label: 'Tipo Filtrado', value: filterLabels[data.filterType] },
+      { label: 'Competidores Envolvidos', value: data.byCompetitor.length },
+    ], y);
+
+    if (data.byCompetitor.length > 0) {
+      y = checkPageBreak(doc, y, 30);
+      y = addSectionTitle(doc, 'RESUMO POR COMPETIDOR', y);
+      y = addTable(
+        doc,
+        [
+          { header: 'Competidor', dataKey: 'name', width: 70 },
+          { header: 'Sessões', dataKey: 'sessions', width: 25 },
+          { header: 'Horas', dataKey: 'hours', width: 25 },
+        ],
+        data.byCompetitor
+          .sort((a, b) => b.hours - a.hours)
+          .map((c) => ({ name: c.name, sessions: c.sessions, hours: c.hours.toFixed(1) })),
+        y
+      );
+    }
+
+    if (data.trainings.length > 0) {
+      y = checkPageBreak(doc, y, 30);
+      y = addSectionTitle(doc, 'DETALHAMENTO DE SESSÕES', y);
+      y = addTable(
+        doc,
+        [
+          { header: 'Competidor', dataKey: 'competitor', width: 40 },
+          { header: 'Data', dataKey: 'date', width: 22 },
+          { header: 'Horas', dataKey: 'hours', width: 15 },
+          { header: 'Tipo', dataKey: 'type', width: 20 },
+          { header: 'Local', dataKey: 'location', width: 35 },
+          { header: 'Status', dataKey: 'status', width: 20 },
+        ],
+        data.trainings.map((t) => ({
+          competitor: t.competitor_name,
+          date: formatDate(t.date),
+          hours: t.hours.toFixed(1),
+          type: typeLabels[t.type] || t.type,
+          location: t.location || '-',
+          status: statusLabels[t.status] || t.status,
+        })),
+        y
+      );
+    }
   }
 
-  // Detailed sessions
-  if (data.trainings.length > 0) {
-    y = checkPageBreak(doc, y, 30);
-    y = addSectionTitle(doc, 'DETALHAMENTO DE SESSÕES', y);
-
-    const typeLabels: Record<string, string> = {
-      senai: 'SENAI',
-      external: 'Externo',
-      empresa: 'Empresa',
-      autonomo: 'Autônomo',
-    };
-    const statusLabels: Record<string, string> = {
-      pending: 'Pendente',
-      approved: 'Aprovado',
-      rejected: 'Rejeitado',
-      validated: 'Validado',
-    };
-
-    y = addTable(
-      doc,
-      [
-        { header: 'Competidor', dataKey: 'competitor', width: 40 },
-        { header: 'Data', dataKey: 'date', width: 22 },
-        { header: 'Horas', dataKey: 'hours', width: 15 },
-        { header: 'Tipo', dataKey: 'type', width: 20 },
-        { header: 'Local', dataKey: 'location', width: 35 },
-        { header: 'Status', dataKey: 'status', width: 20 },
-      ],
-      data.trainings.map((t) => ({
-        competitor: t.competitor_name,
-        date: formatDate(t.date),
-        hours: t.hours.toFixed(1),
-        type: typeLabels[t.type] || t.type,
-        location: t.location || '-',
-        status: statusLabels[t.status] || t.status,
-      })),
-      y
-    );
-  }
-
-  savePDF(doc, `relatorio_presenca_${data.filterType}.pdf`);
+  savePDF(doc, `relatorio_presenca_${isSingleCompetitor ? data.competitor_name!.replace(/\s+/g, '_') : data.filterType}.pdf`);
 }
 
 export interface RankingReportData {

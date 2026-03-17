@@ -54,7 +54,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 // ─── Main page ───────────────────────────────────────────────────────────────
 const CompetitorEvolutionPage: React.FC = () => {
   const { user } = useAuthStore();
-  const isEvaluatorOrAdmin = user?.role === 'super_admin' || user?.role === 'evaluator';
+  const isAdmin = user?.role === 'super_admin';
+  const isEvaluatorOrAdmin = isAdmin || user?.role === 'evaluator';
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('geral');
@@ -63,6 +64,8 @@ const CompetitorEvolutionPage: React.FC = () => {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [modalities, setModalities] = useState<ModalityOption[]>([]);
   const [competences, setCompetences] = useState<Competence[]>([]);
+  // Modalities the current evaluator belongs to (used to filter competitor modalities)
+  const [myModalityIds, setMyModalityIds] = useState<Set<string>>(new Set());
 
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string>('');
   const [selectedModalityId, setSelectedModalityId] = useState<string>('');
@@ -82,9 +85,27 @@ const CompetitorEvolutionPage: React.FC = () => {
     const init = async () => {
       try {
         setIsLoadingInit(true);
-        if (isEvaluatorOrAdmin) {
+        if (isAdmin) {
+          // Admin: see all competitors
           const compResp = await competitorService.getAll({ limit: 500 });
           setCompetitors(compResp.competitors || []);
+        } else if (isEvaluatorOrAdmin) {
+          // Evaluator: only competitors from their modalities
+          const mods = await enrollmentService.getMyModalities();
+          const modIds = new Set<string>((mods || []).map((m: any) => m.id as string));
+          setMyModalityIds(modIds);
+          const seen = new Set<string>();
+          const allCompetitors: Competitor[] = [];
+          for (const mod of (mods || [])) {
+            const resp = await competitorService.getByModality(mod.id);
+            for (const c of resp.competitors || []) {
+              if (!seen.has(c.id)) {
+                seen.add(c.id);
+                allCompetitors.push(c);
+              }
+            }
+          }
+          setCompetitors(allCompetitors);
         } else {
           // Competitor role: auto-load own profile + modalities
           const [profile, mods] = await Promise.all([
@@ -106,7 +127,7 @@ const CompetitorEvolutionPage: React.FC = () => {
       }
     };
     init();
-  }, [isEvaluatorOrAdmin]);
+  }, [isAdmin, isEvaluatorOrAdmin]);
 
   // ── Auto-fill modality when evaluator selects a competitor ──────────────
   const handleCompetitorChange = useCallback(
@@ -128,6 +149,8 @@ const CompetitorEvolutionPage: React.FC = () => {
           .filter((e) => {
             if (seen.has(e.modality_id)) return false;
             seen.add(e.modality_id);
+            // Evaluator: restrict to their own modalities; admin sees all
+            if (!isAdmin && myModalityIds.size > 0 && !myModalityIds.has(e.modality_id)) return false;
             return true;
           })
           .map((e) => ({ id: e.modality_id, name: `${e.modality_name}` }));
@@ -139,7 +162,7 @@ const CompetitorEvolutionPage: React.FC = () => {
         setIsLoadingModalities(false);
       }
     },
-    [],
+    [isAdmin, myModalityIds],
   );
 
   // ── Load competences when modality changes ───────────────────────────────
@@ -216,22 +239,24 @@ const CompetitorEvolutionPage: React.FC = () => {
     }
 
     if (viewMode === 'criterio') {
-      // Aggregate all sub-criteria per exam → single series
+      // Aggregate all sub-criteria per exam → single series (average, not sum)
       const examMap = new Map<
         string,
-        { exam_id: string; exam_name: string; exam_date: string; total: number }
+        { exam_id: string; exam_name: string; exam_date: string; total: number; count: number }
       >();
       series.forEach((s) => {
         s.points.forEach((p) => {
           const ex = examMap.get(p.exam_id);
           if (ex) {
             ex.total += p.score;
+            ex.count += 1;
           } else {
             examMap.set(p.exam_id, {
               exam_id: p.exam_id,
               exam_name: p.exam_name,
               exam_date: p.exam_date,
               total: p.score,
+              count: 1,
             });
           }
         });
@@ -242,7 +267,7 @@ const CompetitorEvolutionPage: React.FC = () => {
           exam_id: e.exam_id,
           exam_name: e.exam_name,
           exam_date: e.exam_date,
-          score: e.total,
+          score: e.count > 0 ? e.total / e.count : 0,
         }));
       return [{ label: competence_name, sub_competence_id: null, max_score, points }];
     }

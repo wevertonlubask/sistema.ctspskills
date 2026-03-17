@@ -104,7 +104,106 @@ async def list_competitors(
     modality_id: UUID | None = Query(default=None),
     search: str | None = Query(default=None, max_length=100),
 ) -> CompetitorListResponse:
-    """List competitors."""
+    """List competitors.
+
+    Evaluators only see competitors enrolled in their assigned modalities.
+    """
+    from sqlalchemy import select, union_all
+
+    from src.shared.constants.enums import UserRole
+    from src.infrastructure.database.models.modality_model import (
+        CompetitorModel,
+        EnrollmentModel,
+        EvaluatorModalityModel,
+        ModalityModel,
+    )
+
+    # Restrict evaluators to competitors in their own modalities
+    if current_user.role == UserRole.EVALUATOR:
+        # Modalities via direct assignment
+        direct_stmt = (
+            select(ModalityModel.id)
+            .join(EvaluatorModalityModel, EvaluatorModalityModel.modality_id == ModalityModel.id)
+            .where(EvaluatorModalityModel.evaluator_id == current_user.id)
+            .where(EvaluatorModalityModel.is_active)
+            .where(ModalityModel.is_active)
+        )
+        # Modalities via enrollment assignment
+        enroll_stmt = (
+            select(ModalityModel.id)
+            .join(EnrollmentModel, EnrollmentModel.modality_id == ModalityModel.id)
+            .where(EnrollmentModel.evaluator_id == current_user.id)
+            .where(EnrollmentModel.status == "active")
+            .where(ModalityModel.is_active)
+        )
+        my_modality_ids_sub = union_all(direct_stmt, enroll_stmt).subquery()
+
+        # If a specific modality was requested, only allow it if the evaluator owns it
+        if modality_id:
+            allowed = await db.execute(
+                select(my_modality_ids_sub.c.id).where(
+                    my_modality_ids_sub.c.id == modality_id
+                )
+            )
+            if not allowed.first():
+                return CompetitorListResponse(
+                    competitors=[], total=0, skip=skip, limit=limit, has_more=False
+                )
+            # modality_id is valid — fall through to normal use_case path below
+        else:
+            # Collect competitor IDs enrolled in the evaluator's modalities
+            comp_ids_result = await db.execute(
+                select(EnrollmentModel.competitor_id)
+                .where(EnrollmentModel.modality_id.in_(select(my_modality_ids_sub.c.id)))
+                .where(EnrollmentModel.status == "active")
+                .distinct()
+            )
+            allowed_competitor_ids = [r[0] for r in comp_ids_result.all()]
+            if not allowed_competitor_ids:
+                return CompetitorListResponse(
+                    competitors=[], total=0, skip=skip, limit=limit, has_more=False
+                )
+
+            # Use repository to get properly converted entities → DTOs
+            repo = SQLAlchemyCompetitorRepository(db)
+            all_dtos = []
+            seen: set[UUID] = set()
+            for mid in (
+                await db.execute(select(my_modality_ids_sub.c.id))
+            ).scalars().all():
+                mod_competitors = await repo.get_by_modality(mid, skip=0, limit=10000)
+                for c in mod_competitors:
+                    if c.id not in seen:
+                        seen.add(c.id)
+                        all_dtos.append(c)
+
+            from src.application.modality.dtos.competitor_dto import CompetitorDTO
+            from src.infrastructure.database.models.user_model import UserModel
+
+            # Apply pagination
+            paginated = all_dtos[skip: skip + limit]
+            user_ids = [c.user_id for c in paginated]
+            user_emails: dict[UUID, str] = {}
+            if user_ids:
+                u_result = await db.execute(
+                    select(UserModel.id, UserModel.email).where(UserModel.id.in_(user_ids))
+                )
+                user_emails = {row.id: row.email for row in u_result.all()}
+
+            return CompetitorListResponse(
+                competitors=[
+                    competitor_dto_to_response(
+                        CompetitorDTO.from_entity(c),
+                        email=user_emails.get(c.user_id),
+                    )
+                    for c in paginated
+                ],
+                total=len(all_dtos),
+                skip=skip,
+                limit=limit,
+                has_more=(skip + limit) < len(all_dtos),
+            )
+
     use_case = ListCompetitorsUseCase(
         competitor_repository=SQLAlchemyCompetitorRepository(db),
     )

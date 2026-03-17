@@ -93,6 +93,8 @@ class TrainingRepository(ABC):
         skip: int = 0,
         limit: int = 100,
         status: TrainingStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[TrainingSession]:
         """Get training sessions by modality.
 
@@ -101,6 +103,8 @@ class TrainingRepository(ABC):
             skip: Number of records to skip.
             limit: Maximum records to return.
             status: Filter by status.
+            start_date: Filter from this date.
+            end_date: Filter until this date.
 
         Returns:
             List of training sessions.
@@ -114,6 +118,8 @@ class TrainingRepository(ABC):
         skip: int = 0,
         limit: int = 100,
         status: TrainingStatus | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[TrainingSession]:
         """Get training sessions pending validation by an evaluator.
 
@@ -122,6 +128,8 @@ class TrainingRepository(ABC):
             skip: Number of records to skip.
             limit: Maximum records to return.
             status: Filter by status.
+            start_date: Filter from this date.
+            end_date: Filter until this date.
 
         Returns:
             List of training sessions.

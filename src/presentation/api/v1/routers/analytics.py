@@ -753,32 +753,62 @@ async def get_total_evolution(
     if not competitor:
         raise HTTPException(status_code=404, detail="Competidor não encontrado")
 
-    # Total max_score from modality competences
-    total_max = 100.0
-    if modality_id:
-        max_stmt = select(func.sum(CompetenceModel.max_score)).where(
-            CompetenceModel.modality_id == modality_id,
-        )
-        max_result = await db.execute(max_stmt)
-        total_max = float(max_result.scalar() or 100.0)
+    from sqlalchemy import case, literal
 
-    # Sum grades per exam
-    grades_stmt = (
+    modality_filter = [ExamModel.modality_id == modality_id] if modality_id else []
+
+    # Step 1: normalize each grade to 0-100
+    # sub-competence grade: (score / sub.max_score) * 100
+    # direct grade: score as-is (already 0-100)
+    normalized = (
         select(
             ExamModel.id.label("exam_id"),
             ExamModel.name.label("exam_name"),
-            ExamModel.exam_date,
-            func.sum(GradeModel.score).label("total_score"),
+            ExamModel.exam_date.label("exam_date"),
+            GradeModel.competence_id.label("competence_id"),
+            case(
+                (
+                    GradeModel.sub_competence_id.isnot(None),
+                    (GradeModel.score / func.nullif(SubCompetenceModel.max_score, literal(0))) * 100,
+                ),
+                else_=GradeModel.score,
+            ).label("norm_score"),
         )
-        .join(GradeModel, GradeModel.exam_id == ExamModel.id)
-        .where(GradeModel.competitor_id == competitor_id)
-        .group_by(ExamModel.id, ExamModel.name, ExamModel.exam_date)
-        .order_by(ExamModel.exam_date, ExamModel.name)
-    )
-    if modality_id:
-        grades_stmt = grades_stmt.where(ExamModel.modality_id == modality_id)
+        .outerjoin(SubCompetenceModel, GradeModel.sub_competence_id == SubCompetenceModel.id)
+        .join(ExamModel, GradeModel.exam_id == ExamModel.id)
+        .where(GradeModel.competitor_id == competitor_id, *modality_filter)
+    ).subquery("norm")
 
-    result = await db.execute(grades_stmt)
+    # Step 2: average per competence per exam (collapses sub-grades → one score per criterion)
+    comp_avg = (
+        select(
+            normalized.c.exam_id,
+            normalized.c.exam_name,
+            normalized.c.exam_date,
+            normalized.c.competence_id,
+            func.avg(normalized.c.norm_score).label("comp_score"),
+        )
+        .group_by(
+            normalized.c.exam_id,
+            normalized.c.exam_name,
+            normalized.c.exam_date,
+            normalized.c.competence_id,
+        )
+    ).subquery("comp_avg")
+
+    # Step 3: average across all criteria per exam → 0-100 nota geral
+    exam_avg = (
+        select(
+            comp_avg.c.exam_id,
+            comp_avg.c.exam_name,
+            comp_avg.c.exam_date,
+            func.avg(comp_avg.c.comp_score).label("avg_score"),
+        )
+        .group_by(comp_avg.c.exam_id, comp_avg.c.exam_name, comp_avg.c.exam_date)
+        .order_by(comp_avg.c.exam_date, comp_avg.c.exam_name)
+    )
+
+    result = await db.execute(exam_avg)
     rows = result.all()
 
     points = [
@@ -786,7 +816,7 @@ async def get_total_evolution(
             exam_id=row.exam_id,
             exam_name=row.exam_name,
             exam_date=row.exam_date,
-            score=float(row.total_score),
+            score=round(float(row.avg_score), 1),
         )
         for row in rows
     ]
@@ -796,13 +826,13 @@ async def get_total_evolution(
         competitor_name=competitor.full_name,
         competence_id=UUID("00000000-0000-0000-0000-000000000000"),
         competence_name="Nota Geral",
-        max_score=total_max,
+        max_score=100.0,
         has_sub_competences=False,
         series=[
             CompetenceEvolutionSeries(
                 label="Nota Total",
                 sub_competence_id=None,
-                max_score=total_max,
+                max_score=100.0,
                 points=points,
             )
         ],

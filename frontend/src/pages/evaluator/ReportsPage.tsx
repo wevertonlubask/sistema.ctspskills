@@ -31,6 +31,7 @@ interface ReportConfig {
   requiresCompetitor: boolean;
   hasAttendanceFilter: boolean;
   hasDateFilter: boolean;
+  hasOptionalCompetitor?: boolean;
 }
 
 const REPORT_CONFIGS: ReportConfig[] = [
@@ -75,6 +76,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     requiresCompetitor: false,
     hasAttendanceFilter: true,
     hasDateFilter: true,
+    hasOptionalCompetitor: true,
   },
   {
     type: 'ranking',
@@ -183,31 +185,17 @@ const ReportsPage: React.FC = () => {
         if (selectedModality) {
           const response = await competitorService.getByModality(selectedModality);
           setCompetitors(response.competitors || []);
-        } else if (isAdmin) {
-          // Admin can see all competitors
+        } else {
+          // Backend enforces role-based filtering automatically
           const response = await competitorService.getAll({ limit: 1000, active_only: true });
           setCompetitors(response.competitors || []);
-        } else {
-          // Evaluator: load competitors only from their modalities
-          const allCompetitors: Competitor[] = [];
-          const seenIds = new Set<string>();
-          for (const mod of modalities) {
-            const response = await competitorService.getByModality(mod.id);
-            for (const c of response.competitors || []) {
-              if (!seenIds.has(c.id)) {
-                seenIds.add(c.id);
-                allCompetitors.push(c);
-              }
-            }
-          }
-          setCompetitors(allCompetitors);
         }
       } catch (err) {
         console.error('Error loading competitors:', err);
       }
     };
     loadCompetitors();
-  }, [selectedModality, isAdmin, modalities]);
+  }, [selectedModality]);
 
   const getHeaderOptions = (): PDFHeaderOptions => ({
     title: '',
@@ -256,6 +244,7 @@ const ReportsPage: React.FC = () => {
         case 'attendance':
           await reportService.generateAttendance(
             {
+              competitorId: selectedCompetitor || undefined,
               modalityId: selectedModality || undefined,
               trainingType: attendanceFilter,
               startDate: startDate || undefined,
@@ -486,6 +475,27 @@ const ReportsPage: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Optional competitor filter (attendance report) */}
+            {selectedConfig?.hasOptionalCompetitor && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Competidor (opcional)
+                </label>
+                <select
+                  value={selectedCompetitor}
+                  onChange={(e) => setSelectedCompetitor(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Todos os competidores</option>
+                  {competitors.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 

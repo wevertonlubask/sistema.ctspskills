@@ -6,6 +6,7 @@ import { StatCard } from '../../components/charts/StatCard';
 import { LineChartCard, ProgressChart, TrainingHoursChart } from '../../components/charts';
 import { GoalConfigModal, MetaConfigModal, getStoredMeta, TrainingHoursConfigModal, getStoredTrainingHoursMeta, getDailyTrainingTarget } from '../../components/forms';
 import { gradeService, trainingService, enrollmentService, competitorService, examService } from '../../services';
+import { analyticsService } from '../../services/analyticsService';
 import type { Grade, TrainingStatistics, Modality, TrainingSession, Exam } from '../../types';
 import type { ProgressData } from '../../components/charts/ProgressChart';
 import type { TrainingHoursData } from '../../components/charts/TrainingHoursChart';
@@ -445,80 +446,48 @@ const DashboardPage: React.FC = () => {
   };
 
   const fetchEvaluatorData = async (myModalities: Modality[]) => {
-    // Fetch competitors and their stats
-    const allGrades: Grade[] = [];
+    // Fetch competitors and their stats using ranking endpoint (already normalizes sub-competence scores)
     const statsMap = new Map<string, CompetitorStats>();
 
     for (const modality of myModalities) {
       try {
-        const competitorsResponse = await competitorService.getByModality(modality.id);
-        const competitors = competitorsResponse.competitors || [];
-
-        for (const competitor of competitors) {
-          if (statsMap.has(competitor.id)) continue;
-
-          // Get grades
-          const gradesResponse = await gradeService.getAll({
-            competitor_id: competitor.id,
-            limit: 500,
-          });
-          const competitorGrades = gradesResponse.grades || [];
-          allGrades.push(...competitorGrades);
-
-          // Group grades by exam and sum scores per exam
-          const examTotals = new Map<string, number>();
-          for (const grade of competitorGrades) {
-            examTotals.set(grade.exam_id, (examTotals.get(grade.exam_id) || 0) + grade.score);
-          }
-
-          const examTotalValues = Array.from(examTotals.values());
-
-          // Average = mean of exam totals (across multiple exams)
-          const avg = examTotalValues.length > 0
-            ? examTotalValues.reduce((s, v) => s + v, 0) / examTotalValues.length
-            : 0;
-
+        const ranking = await analyticsService.getRanking(modality.id);
+        for (const entry of ranking.entries) {
+          if (statsMap.has(entry.competitor_id)) continue;
           // Get training hours
           let trainingHours = 0;
           try {
-            const stats = await trainingService.getStatistics(competitor.id);
+            const stats = await trainingService.getStatistics(entry.competitor_id);
             trainingHours = stats.approved_hours;
           } catch {
             // Ignore
           }
-
-          // Evolution: one point per exam = total score for that exam
-          const evolution = Array.from(examTotals.entries()).map(([_, total], index) => ({
-            name: `Av ${index + 1}`,
-            value: Math.round(total * 10) / 10,
-          }));
-
-          statsMap.set(competitor.id, {
-            competitorId: competitor.id,
-            competitorName: competitor.full_name,
-            average: Math.round(avg * 10) / 10,
+          statsMap.set(entry.competitor_id, {
+            competitorId: entry.competitor_id,
+            competitorName: entry.competitor_name,
+            average: Math.round(entry.score * 10) / 10,
             trainingHours,
-            evolutionData: evolution,
+            evolutionData: [],
           });
         }
       } catch (err) {
-        console.error('Error fetching competitors for modality:', modality.id, err);
+        console.error('Error fetching ranking for modality:', modality.id, err);
       }
     }
 
     const competitorsArray = Array.from(statsMap.values());
     setCompetitorsStats(competitorsArray);
 
-    // Build progress data for bar chart - show each competitor's average vs meta
+    // Build progress data for bar chart — score is already 0-100 normalized
     const progressItems: ProgressData[] = competitorsArray.map(comp => ({
-      name: comp.competitorName.split(' ')[0], // First name only for chart
+      name: comp.competitorName.split(' ')[0],
       atual: comp.average,
       meta: metaGlobal,
     }));
     setProgressData(progressItems);
 
-    // Calculate overall average: average of each competitor's average (which is already per-exam total)
-    const compAverages = Array.from(statsMap.values()).map((s) => s.average);
+    // Overall average across all competitors
+    const compAverages = competitorsArray.map((s) => s.average);
     const avgScore = compAverages.length > 0
       ? compAverages.reduce((sum, v) => sum + v, 0) / compAverages.length
       : 0;

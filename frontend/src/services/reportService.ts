@@ -298,8 +298,21 @@ export const reportService = {
       modalityName = modality.name;
     }
 
+    let competitorName: string | undefined;
+    if (filters.competitorId) {
+      const competitor = await competitorService.getById(filters.competitorId);
+      competitorName = competitor.full_name;
+    }
+
     // Fetch trainings
-    const trainings = await fetchTrainings(filters);
+    let trainings = await fetchTrainings(filters);
+
+    // When a specific competitor is selected, ensure only their trainings are included
+    if (filters.competitorId && competitorName) {
+      trainings = trainings.filter(
+        (t) => t.competitor_id === filters.competitorId || t.competitor_name === competitorName
+      );
+    }
 
     // Group by competitor
     const byCompetitor = new Map<string, { name: string; sessions: number; hours: number }>();
@@ -313,6 +326,7 @@ export const reportService = {
 
     const data: AttendanceReportData = {
       modality_name: modalityName,
+      competitor_name: competitorName,
       filterType: filters.trainingType || 'all',
       startDate: filters.startDate,
       endDate: filters.endDate,

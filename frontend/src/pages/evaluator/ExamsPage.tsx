@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Button, Table, Badge, Spinner, Alert, Modal, Input, Select, RichTextEditor, RichTextDisplay } from '../../components/ui';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -101,9 +101,6 @@ const ExamsPage: React.FC = () => {
   const [competences, setCompetences] = useState<Competence[]>([]);
   const [examGrades, setExamGrades] = useState<Grade[]>([]);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
-
-  // Ref para sincronizar scroll vertical do painel de nomes
-  const leftListRef = useRef<HTMLDivElement>(null);
 
   // Bulk grade modal state
   const [isBulkGradeModalOpen, setIsBulkGradeModalOpen] = useState(false);
@@ -1324,197 +1321,164 @@ const ExamsPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Grid de notas: painel de nomes absolutamente posicionado APÓS a tabela no DOM,
-                          garantindo que pinte sempre por cima dos inputs (DOM order + z-index: 20) */}
-                      <div
-                        className="rounded-xl border border-gray-200 dark:border-gray-700 max-h-[55vh]"
-                        style={{ position: 'relative', overflow: 'hidden' }}
-                      >
-                        {/* DIREITA: tabela de inputs com scroll, padding-left reserva espaço para o painel de nomes */}
-                        <div
-                          className="overflow-auto"
-                          style={{ paddingLeft: '190px' }}
-                          onScroll={(e) => {
-                            if (leftListRef.current) {
-                              leftListRef.current.scrollTop = e.currentTarget.scrollTop;
-                            }
-                          }}
-                        >
-                          <table className="border-separate border-spacing-0" style={{ tableLayout: 'fixed', width: 'max-content' }}>
-                            <thead>
-                              <tr className="bg-gray-100 dark:bg-gray-800">
+                      {/* Grid de notas — sticky column padrão, funciona em Firefox/Chrome/Safari */}
+                      <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-700 max-h-[55vh]">
+                        <table className="border-separate border-spacing-0">
+                          <thead>
+                            <tr>
+                              {/* Célula do cabeçalho "Competidor" — sticky left + top */}
+                              <th
+                                rowSpan={hasAnySubs ? 2 : 1}
+                                style={{ position: 'sticky', left: 0, top: 0, zIndex: 4, width: '190px', minWidth: '190px' }}
+                                className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r-2 border-b-2 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800"
+                              >
+                                Competidor
+                              </th>
+                              {competences.map((comp) => {
+                                const subs = bulkSubCompetences.get(comp.id);
+                                const hasSubs = subs && subs.length > 0;
+                                const colSpan = hasSubs ? subs.length : 1;
+                                const rowSpan = hasAnySubs && !hasSubs ? 2 : 1;
+                                return (
+                                  <th
+                                    key={comp.id}
+                                    colSpan={colSpan}
+                                    rowSpan={rowSpan}
+                                    style={{ position: 'sticky', top: 0, zIndex: 1, width: '100px', minWidth: '100px' }}
+                                    className={`px-3 py-2.5 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 border-l border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 ${(hasAnySubs && !hasSubs) ? 'border-b-2 border-b-gray-300 dark:border-b-gray-600' : 'border-b border-b-gray-200 dark:border-b-gray-700'}`}
+                                    title={comp.description || comp.name}
+                                  >
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="leading-tight">{comp.name}</span>
+                                      {!hasSubs && (
+                                        <span className="text-[10px] font-normal text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600/60 px-2 py-0.5 rounded-full">
+                                          0 – {comp.max_score}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                            {hasAnySubs && (
+                              <tr>
+                                {/* Espaçador sticky para sub-critérios */}
+                                <th
+                                  style={{ position: 'sticky', left: 0, top: 0, zIndex: 3, width: '190px', minWidth: '190px' }}
+                                  className="border-r-2 border-b-2 border-gray-300 dark:border-gray-600 bg-indigo-50 dark:bg-indigo-900/20"
+                                />
                                 {competences.map((comp) => {
                                   const subs = bulkSubCompetences.get(comp.id);
-                                  const hasSubs = subs && subs.length > 0;
-                                  const colSpan = hasSubs ? subs.length : 1;
-                                  const rowSpan = hasAnySubs && !hasSubs ? 2 : 1;
-                                  return (
+                                  if (!subs || subs.length === 0) return null;
+                                  return subs.map((sub) => (
                                     <th
-                                      key={comp.id}
-                                      colSpan={colSpan}
-                                      rowSpan={rowSpan}
-                                      style={{ width: '100px', minWidth: '100px', height: '56px' }}
-                                      className={`px-3 py-2.5 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 border-l border-gray-200 dark:border-gray-600 ${(hasAnySubs && !hasSubs) ? 'border-b-2 border-b-gray-300 dark:border-b-gray-600' : 'border-b border-b-gray-200 dark:border-b-gray-700'}`}
-                                      title={comp.description || comp.name}
+                                      key={sub.id}
+                                      style={{ position: 'sticky', top: 0, zIndex: 1, width: '100px', minWidth: '100px' }}
+                                      className="px-2 py-2 text-center border-l border-b-2 border-gray-200 dark:border-gray-600 border-b-gray-300 dark:border-b-gray-600 bg-indigo-50 dark:bg-indigo-900/20 h-[42px]"
+                                      title={`${comp.name} › ${sub.name}`}
                                     >
-                                      <div className="flex flex-col items-center gap-1">
-                                        <span className="leading-tight">{comp.name}</span>
-                                        {!hasSubs && (
-                                          <span className="text-[10px] font-normal text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600/60 px-2 py-0.5 rounded-full">
-                                            0 – {comp.max_score}
-                                          </span>
-                                        )}
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                                          {sub.name.length > 12 ? sub.name.substring(0, 12) + '…' : sub.name}
+                                        </span>
+                                        <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 rounded-full">
+                                          0 – {sub.max_score}
+                                        </span>
                                       </div>
                                     </th>
+                                  ));
+                                })}
+                              </tr>
+                            )}
+                          </thead>
+                          <tbody>
+                            {competitors.map((competitor, rowIdx) => (
+                              <tr key={competitor.id}>
+                                {/* Célula do nome — sticky left, fundo sólido, sem hover nem transition */}
+                                <td
+                                  style={{ position: 'sticky', left: 0, zIndex: 2, width: '190px', minWidth: '190px', height: '52px' }}
+                                  className="px-3 border-r-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-xs font-bold text-white">
+                                        {competitor.full_name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate min-w-0" title={competitor.full_name}>
+                                      {competitor.full_name}
+                                    </span>
+                                  </div>
+                                </td>
+                                {competences.map((comp) => {
+                                  const subs = bulkSubCompetences.get(comp.id);
+                                  if (subs && subs.length > 0) {
+                                    return subs.map((sub) => {
+                                      const colIdx = columns.findIndex(c => c.type === 'sub' && c.subId === sub.id);
+                                      const existingGrade = getExistingGrade(competitor.id, comp.id, sub.id);
+                                      const currentValue = getBulkGradeValue(competitor.id, comp.id, sub.id);
+                                      const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
+                                      return (
+                                        <td key={sub.id} style={{ width: '100px', minWidth: '100px', height: '52px', overflow: 'hidden' }} className="px-2 text-center border-l border-b border-gray-100 dark:border-gray-800 align-middle bg-white dark:bg-gray-900">
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={currentValue}
+                                            onChange={(e) => {
+                                              const v = e.target.value.replace(/[^0-9.]/g, '');
+                                              handleBulkGradeChange(competitor.id, comp.id, v, sub.id);
+                                            }}
+                                            onKeyDown={(e) => handleTabNav(e, rowIdx, colIdx)}
+                                            data-brow={rowIdx}
+                                            data-bcol={colIdx}
+                                            placeholder="–"
+                                            className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold appearance-none outline-none
+                                              focus:ring-2 focus:ring-blue-400 focus:ring-offset-0
+                                              ${existingGrade && !hasChanged
+                                                ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
+                                                : hasChanged
+                                                  ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
+                                                  : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
+                                              }`}
+                                          />
+                                        </td>
+                                      );
+                                    });
+                                  }
+                                  const colIdx = columns.findIndex(c => c.type === 'comp' && c.compId === comp.id);
+                                  const existingGrade = getExistingGrade(competitor.id, comp.id);
+                                  const currentValue = getBulkGradeValue(competitor.id, comp.id);
+                                  const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
+                                  return (
+                                    <td key={comp.id} style={{ width: '100px', minWidth: '100px', height: '52px', overflow: 'hidden' }} className="px-2 text-center border-l border-b border-gray-100 dark:border-gray-800 align-middle bg-white dark:bg-gray-900">
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={currentValue}
+                                        onChange={(e) => {
+                                          const v = e.target.value.replace(/[^0-9.]/g, '');
+                                          handleBulkGradeChange(competitor.id, comp.id, v);
+                                        }}
+                                        onKeyDown={(e) => handleTabNav(e, rowIdx, colIdx)}
+                                        data-brow={rowIdx}
+                                        data-bcol={colIdx}
+                                        placeholder="–"
+                                        className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold appearance-none outline-none
+                                          focus:ring-2 focus:ring-blue-400 focus:ring-offset-0
+                                          ${existingGrade && !hasChanged
+                                            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
+                                            : hasChanged
+                                              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
+                                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
+                                          }`}
+                                      />
+                                    </td>
                                   );
                                 })}
                               </tr>
-                              {hasAnySubs && (
-                                <tr className="bg-indigo-50/60 dark:bg-indigo-900/10">
-                                  {competences.map((comp) => {
-                                    const subs = bulkSubCompetences.get(comp.id);
-                                    if (!subs || subs.length === 0) return null;
-                                    return subs.map((sub) => (
-                                      <th
-                                        key={sub.id}
-                                        style={{ width: '100px', minWidth: '100px', height: '42px' }}
-                                        className="px-2 py-2 text-center border-l border-b-2 border-gray-200 dark:border-gray-600 border-b-gray-300 dark:border-b-gray-600 bg-indigo-50/60 dark:bg-indigo-900/10"
-                                        title={`${comp.name} › ${sub.name}`}
-                                      >
-                                        <div className="flex flex-col items-center gap-0.5">
-                                          <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
-                                            {sub.name.length > 12 ? sub.name.substring(0, 12) + '…' : sub.name}
-                                          </span>
-                                          <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 rounded-full">
-                                            0 – {sub.max_score}
-                                          </span>
-                                        </div>
-                                      </th>
-                                    ));
-                                  })}
-                                </tr>
-                              )}
-                            </thead>
-                            <tbody>
-                              {competitors.map((competitor, rowIdx) => (
-                                <tr key={competitor.id}>
-                                  {competences.map((comp) => {
-                                    const subs = bulkSubCompetences.get(comp.id);
-                                    if (subs && subs.length > 0) {
-                                      return subs.map((sub) => {
-                                        const colIdx = columns.findIndex(c => c.type === 'sub' && c.subId === sub.id);
-                                        const existingGrade = getExistingGrade(competitor.id, comp.id, sub.id);
-                                        const currentValue = getBulkGradeValue(competitor.id, comp.id, sub.id);
-                                        const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
-                                        return (
-                                          <td key={sub.id} style={{ width: '100px', minWidth: '100px', height: '52px' }} className="px-2 text-center border-l border-b border-gray-100 dark:border-gray-800 align-middle bg-white dark:bg-gray-900">
-                                            <input
-                                              type="text"
-                                              inputMode="decimal"
-                                              value={currentValue}
-                                              onChange={(e) => {
-                                                const v = e.target.value.replace(/[^0-9.]/g, '');
-                                                handleBulkGradeChange(competitor.id, comp.id, v, sub.id);
-                                              }}
-                                              onKeyDown={(e) => handleTabNav(e, rowIdx, colIdx)}
-                                              data-brow={rowIdx}
-                                              data-bcol={colIdx}
-                                              placeholder="–"
-                                              className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold
-                                                focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 dark:focus:ring-offset-gray-900
-                                                ${existingGrade && !hasChanged
-                                                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
-                                                  : hasChanged
-                                                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
-                                                    : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
-                                                }`}
-                                            />
-                                          </td>
-                                        );
-                                      });
-                                    }
-                                    const colIdx = columns.findIndex(c => c.type === 'comp' && c.compId === comp.id);
-                                    const existingGrade = getExistingGrade(competitor.id, comp.id);
-                                    const currentValue = getBulkGradeValue(competitor.id, comp.id);
-                                    const hasChanged = existingGrade && currentValue !== '' && parseFloat(currentValue) !== existingGrade.score;
-                                    return (
-                                      <td key={comp.id} style={{ width: '100px', minWidth: '100px', height: '52px' }} className="px-2 text-center border-l border-b border-gray-100 dark:border-gray-800 align-middle bg-white dark:bg-gray-900">
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          value={currentValue}
-                                          onChange={(e) => {
-                                            const v = e.target.value.replace(/[^0-9.]/g, '');
-                                            handleBulkGradeChange(competitor.id, comp.id, v);
-                                          }}
-                                          onKeyDown={(e) => handleTabNav(e, rowIdx, colIdx)}
-                                          data-brow={rowIdx}
-                                          data-bcol={colIdx}
-                                          placeholder="–"
-                                          className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold
-                                            focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 dark:focus:ring-offset-gray-900
-                                            ${existingGrade && !hasChanged
-                                              ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
-                                              : hasChanged
-                                                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
-                                                : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
-                                            }`}
-                                        />
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* ESQUERDA: painel de nomes absolutamente posicionado DEPOIS da tabela no DOM.
-                            DOM order garante que pinte por cima dos inputs. z-index: 20 reforça.
-                            Fundo sempre sólido — sem transition, sem transparência. */}
-                        <div
-                          style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: '190px', zIndex: 20, display: 'flex', flexDirection: 'column' }}
-                          className="border-r-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900"
-                        >
-                          {/* Header fixo */}
-                          <div
-                            style={{ height: '56px', flexShrink: 0 }}
-                            className={`px-4 flex items-end bg-gray-100 dark:bg-gray-800 ${hasAnySubs ? 'border-b border-gray-200 dark:border-gray-700' : 'border-b-2 border-gray-300 dark:border-gray-600'}`}
-                          >
-                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider pb-3">
-                              Competidor
-                            </span>
-                          </div>
-                          {/* Espaçador sub-critérios */}
-                          {hasAnySubs && (
-                            <div
-                              style={{ height: '42px', flexShrink: 0 }}
-                              className="bg-indigo-50/60 dark:bg-indigo-900/10 border-b-2 border-gray-300 dark:border-gray-600"
-                            />
-                          )}
-                          {/* Lista de competidores — overflow:hidden, scroll sincronizado via scrollTop */}
-                          <div
-                            ref={leftListRef}
-                            style={{ overflowY: 'hidden', overflowX: 'hidden', flex: 1 }}
-                          >
-                            {competitors.map((competitor) => (
-                              <div
-                                key={competitor.id}
-                                style={{ height: '52px' }}
-                                className="flex items-center px-3 gap-2.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900"
-                              >
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
-                                  <span className="text-xs font-bold text-white">
-                                    {competitor.full_name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()}
-                                  </span>
-                                </div>
-                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate min-w-0" title={competitor.full_name}>
-                                  {competitor.full_name}
-                                </span>
-                              </div>
                             ))}
-                          </div>
-                        </div>
+                          </tbody>
+                        </table>
                       </div>
                     </>
                   );
