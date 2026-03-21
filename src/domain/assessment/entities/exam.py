@@ -24,6 +24,7 @@ class Exam(AggregateRoot[UUID]):
         description: str | None = None,
         competence_ids: list[UUID] | None = None,
         is_active: bool = True,
+        time_limit_minutes: int | None = None,
         id: UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -52,6 +53,7 @@ class Exam(AggregateRoot[UUID]):
         self._description = description.strip() if description else None
         self._competence_ids = list(competence_ids) if competence_ids else []
         self._is_active = is_active
+        self._time_limit_minutes = time_limit_minutes
 
     @property
     def name(self) -> str:
@@ -93,12 +95,18 @@ class Exam(AggregateRoot[UUID]):
         """Check if exam is active."""
         return self._is_active
 
+    @property
+    def time_limit_minutes(self) -> int | None:
+        """Get time limit in minutes."""
+        return self._time_limit_minutes
+
     def update(
         self,
         name: str | None = None,
         description: str | None = None,
         exam_date: date | None = None,
         assessment_type: AssessmentType | None = None,
+        time_limit_minutes: int | None = None,
     ) -> None:
         """Update exam details.
 
@@ -116,6 +124,8 @@ class Exam(AggregateRoot[UUID]):
             self._exam_date = exam_date
         if assessment_type is not None:
             self._assessment_type = assessment_type
+        if time_limit_minutes is not None:
+            self._time_limit_minutes = time_limit_minutes
         self._touch()
 
     def add_competence(self, competence_id: UUID) -> bool:

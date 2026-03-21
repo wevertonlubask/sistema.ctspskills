@@ -215,6 +215,15 @@ export interface Exam {
   created_by: string;
   created_at: string;
   updated_at: string;
+  time_limit_minutes?: number | null;
+}
+
+export interface CompetitorTime {
+  exam_id: string;
+  competitor_id: string;
+  duration_minutes: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Grade {

@@ -1,5 +1,5 @@
 import api from './api';
-import type { Exam, Grade, GradeStatistics, AssessmentType, SubCompetence } from '@/types';
+import type { Exam, Grade, GradeStatistics, AssessmentType, SubCompetence, CompetitorTime } from '@/types';
 
 export interface CreateExamRequest {
   name: string;
@@ -8,6 +8,7 @@ export interface CreateExamRequest {
   assessment_type: AssessmentType;
   exam_date: string;
   competence_ids?: string[];
+  time_limit_minutes?: number | null;
 }
 
 export interface UpdateExamRequest {
@@ -18,6 +19,7 @@ export interface UpdateExamRequest {
   exam_date?: string;
   competence_ids?: string[];
   is_active?: boolean;
+  time_limit_minutes?: number | null;
 }
 
 export interface CreateGradeRequest {
@@ -138,6 +140,21 @@ export interface UpdateSubCompetenceRequest {
   max_score?: number;
   order?: number;
 }
+
+export const examTimeService = {
+  async getTimes(examId: string): Promise<CompetitorTime[]> {
+    const response = await api.get<{ exam_id: string; times: CompetitorTime[] }>(`/exams/${examId}/times`);
+    return response.data.times;
+  },
+
+  async setTime(examId: string, competitorId: string, durationMinutes: number): Promise<CompetitorTime> {
+    const response = await api.post<CompetitorTime>(`/exams/${examId}/times`, {
+      competitor_id: competitorId,
+      duration_minutes: durationMinutes,
+    });
+    return response.data;
+  },
+};
 
 export const subCompetenceService = {
   async list(competenceId: string): Promise<SubCompetence[]> {

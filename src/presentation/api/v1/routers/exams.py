@@ -19,12 +19,16 @@ from src.application.assessment.use_cases import (
     UpdateExamUseCase,
 )
 from src.domain.identity.entities.user import User
+from sqlalchemy import select
+
+from src.infrastructure.database.models.assessment_model import ExamCompetitorTimeModel
 from src.infrastructure.database.repositories import (
     SQLAlchemyCompetenceRepository,
     SQLAlchemyExamRepository,
     SQLAlchemyGradeRepository,
     SQLAlchemyModalityRepository,
 )
+from src.infrastructure.database.base import GUID
 from src.presentation.api.v1.dependencies.auth import (
     get_current_active_user,
     require_evaluator,
@@ -32,10 +36,13 @@ from src.presentation.api.v1.dependencies.auth import (
 from src.presentation.api.v1.dependencies.database import get_db
 from src.presentation.schemas.assessment_schema import (
     CompetenceStatisticsResponse,
+    CompetitorTimeResponse,
     CreateExamRequest,
     ExamListResponse,
     ExamResponse,
     ExamStatisticsResponse,
+    ExamTimesResponse,
+    SetCompetitorTimeRequest,
     UpdateExamRequest,
 )
 from src.presentation.schemas.common import MessageResponse
@@ -57,6 +64,7 @@ def exam_dto_to_response(dto: Any) -> ExamResponse:
         created_by=dto.created_by,
         created_at=dto.created_at,
         updated_at=dto.updated_at,
+        time_limit_minutes=dto.time_limit_minutes,
     )
 
 
@@ -86,6 +94,7 @@ async def create_exam(
         exam_date=data.exam_date,
         description=data.description,
         competence_ids=data.competence_ids,
+        time_limit_minutes=data.time_limit_minutes,
     )
 
     result = await use_case.execute(current_user.id, dto)
@@ -178,6 +187,7 @@ async def update_exam(
         assessment_type=data.assessment_type,
         competence_ids=data.competence_ids,
         is_active=data.is_active,
+        time_limit_minutes=data.time_limit_minutes,
     )
 
     result = await use_case.execute(exam_id, dto)
@@ -246,4 +256,81 @@ async def get_exam_statistics(
             )
             for cs in result.competence_stats
         ],
+    )
+
+
+@router.get(
+    "/{exam_id}/times",
+    response_model=ExamTimesResponse,
+    summary="Get competitor times for an exam",
+)
+async def get_exam_times(
+    exam_id: UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ExamTimesResponse:
+    """Get all competitor durations for an exam."""
+    from src.infrastructure.database.models.assessment_model import ExamCompetitorTimeModel  # noqa: PLC0415
+    stmt = select(ExamCompetitorTimeModel).where(ExamCompetitorTimeModel.exam_id == exam_id)
+    result = await db.execute(stmt)
+    times = result.scalars().all()
+    return ExamTimesResponse(
+        exam_id=exam_id,
+        times=[
+            CompetitorTimeResponse(
+                exam_id=t.exam_id,
+                competitor_id=t.competitor_id,
+                duration_minutes=t.duration_minutes,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+            )
+            for t in times
+        ],
+    )
+
+
+@router.post(
+    "/{exam_id}/times",
+    response_model=CompetitorTimeResponse,
+    summary="Set competitor time for an exam",
+    status_code=status.HTTP_200_OK,
+)
+async def set_competitor_time(
+    exam_id: UUID,
+    data: SetCompetitorTimeRequest,
+    current_user: Annotated[User, Depends(require_evaluator)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CompetitorTimeResponse:
+    """Upsert a competitor's duration for an exam."""
+    from src.infrastructure.database.models.assessment_model import ExamCompetitorTimeModel  # noqa: PLC0415
+    from uuid import uuid4  # noqa: PLC0415
+
+    stmt = select(ExamCompetitorTimeModel).where(
+        ExamCompetitorTimeModel.exam_id == exam_id,
+        ExamCompetitorTimeModel.competitor_id == data.competitor_id,
+    )
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        existing.duration_minutes = data.duration_minutes
+        record = existing
+    else:
+        record = ExamCompetitorTimeModel(
+            id=uuid4(),
+            exam_id=exam_id,
+            competitor_id=data.competitor_id,
+            duration_minutes=data.duration_minutes,
+        )
+        db.add(record)
+
+    await db.flush()
+    await db.commit()
+
+    return CompetitorTimeResponse(
+        exam_id=record.exam_id,
+        competitor_id=record.competitor_id,
+        duration_minutes=record.duration_minutes,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
     )

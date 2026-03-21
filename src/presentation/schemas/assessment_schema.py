@@ -21,6 +21,7 @@ class CreateExamRequest(BaseModel):
         None,
         description="List of competence IDs to evaluate",
     )
+    time_limit_minutes: int | None = Field(None, ge=1, description="Time limit in minutes")
 
     model_config = {
         "json_schema_extra": {
@@ -48,6 +49,7 @@ class UpdateExamRequest(BaseModel):
     assessment_type: AssessmentType | None = None
     competence_ids: list[UUID] | None = None
     is_active: bool | None = None
+    time_limit_minutes: int | None = Field(None, ge=1)
 
 
 class ExamResponse(BaseModel):
@@ -64,6 +66,7 @@ class ExamResponse(BaseModel):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    time_limit_minutes: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -261,3 +264,30 @@ class SubCompetenceListResponse(BaseModel):
 
     sub_competences: list[SubCompetenceResponse]
     total: int
+
+
+# Competitor Time Schemas
+class SetCompetitorTimeRequest(BaseModel):
+    """Request to set duration for a competitor in an exam."""
+
+    competitor_id: UUID
+    duration_minutes: int = Field(..., ge=1, description="Duration in minutes")
+
+
+class CompetitorTimeResponse(BaseModel):
+    """Response for a competitor's exam time."""
+
+    exam_id: UUID
+    competitor_id: UUID
+    duration_minutes: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ExamTimesResponse(BaseModel):
+    """Response for all competitor times in an exam."""
+
+    exam_id: UUID
+    times: list[CompetitorTimeResponse]

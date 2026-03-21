@@ -11,6 +11,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Table,
     Text,
@@ -64,6 +65,7 @@ class ExamModel(Base):
         index=True,
     )
     exam_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_by: Mapped[UUID] = mapped_column(
         GUID,
@@ -99,6 +101,11 @@ class ExamModel(Base):
     )
     grades: Mapped[list["GradeModel"]] = relationship(
         "GradeModel",
+        back_populates="exam",
+        cascade="all, delete-orphan",
+    )
+    competitor_times: Mapped[list["ExamCompetitorTimeModel"]] = relationship(
+        "ExamCompetitorTimeModel",
         back_populates="exam",
         cascade="all, delete-orphan",
     )
@@ -271,6 +278,36 @@ class GradeAuditLogModel(Base):
     __table_args__ = (
         Index("ix_audit_grade_time", "grade_id", "changed_at"),
         Index("ix_audit_user_time", "changed_by", "changed_at"),
+    )
+
+
+class ExamCompetitorTimeModel(Base):
+    """Model for tracking how long each competitor took in an exam."""
+
+    __tablename__ = "exam_competitor_times"
+
+    id: Mapped[UUID] = mapped_column(GUID, primary_key=True, default=uuid4)
+    exam_id: Mapped[UUID] = mapped_column(
+        GUID, ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    competitor_id: Mapped[UUID] = mapped_column(
+        GUID, ForeignKey("competitors.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    exam: Mapped["ExamModel"] = relationship("ExamModel", back_populates="competitor_times")
+    competitor: Mapped["CompetitorModel"] = relationship("CompetitorModel")
+
+    __table_args__ = (
+        UniqueConstraint("exam_id", "competitor_id", name="uq_exam_competitor_time"),
+        Index("ix_exam_competitor_times_exam_id", "exam_id"),
+        Index("ix_exam_competitor_times_competitor_id", "competitor_id"),
     )
 
 

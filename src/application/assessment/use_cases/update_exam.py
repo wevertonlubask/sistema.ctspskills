@@ -50,6 +50,7 @@ class UpdateExamUseCase:
             description=dto.description,
             exam_date=dto.exam_date,
             assessment_type=dto.assessment_type,
+            time_limit_minutes=dto.time_limit_minutes,
         )
 
         # Update active status if provided

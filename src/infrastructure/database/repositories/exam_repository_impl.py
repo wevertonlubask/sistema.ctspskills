@@ -37,6 +37,7 @@ class SQLAlchemyExamRepository(ExamRepository):
             competence_ids=competence_ids,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            time_limit_minutes=model.time_limit_minutes,
         )
 
     def _entity_to_model(self, entity: Exam) -> ExamModel:
@@ -52,6 +53,7 @@ class SQLAlchemyExamRepository(ExamRepository):
             created_by=entity.created_by,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
+            time_limit_minutes=entity.time_limit_minutes,
         )
         # Initialize competences to avoid lazy loading issues
         model.competences = []
@@ -118,6 +120,7 @@ class SQLAlchemyExamRepository(ExamRepository):
             model.exam_date = exam.exam_date
             model.is_active = exam.is_active
             model.updated_at = exam.updated_at
+            model.time_limit_minutes = exam.time_limit_minutes
 
             # Update competences
             await self._load_competences(model, exam.competence_ids)

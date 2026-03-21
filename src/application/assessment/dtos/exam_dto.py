@@ -18,6 +18,7 @@ class CreateExamDTO:
     exam_date: date
     description: str | None = None
     competence_ids: list[UUID] | None = None
+    time_limit_minutes: int | None = None
 
 
 @dataclass
@@ -30,6 +31,7 @@ class UpdateExamDTO:
     assessment_type: AssessmentType | None = None
     competence_ids: list[UUID] | None = None
     is_active: bool | None = None
+    time_limit_minutes: int | None = None
 
 
 @dataclass
@@ -47,6 +49,7 @@ class ExamDTO:
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    time_limit_minutes: int | None = None
 
     @classmethod
     def from_entity(cls, entity: Exam) -> "ExamDTO":
@@ -63,6 +66,7 @@ class ExamDTO:
             created_by=entity.created_by,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
+            time_limit_minutes=entity.time_limit_minutes,
         )
 
 

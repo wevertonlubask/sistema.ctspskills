@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardBody, Button, Table, Badge, Spinner, Alert, Modal } from '../../components/ui';
-import { gradeService, examService, modalityService, competitorService, enrollmentService, subCompetenceService } from '../../services';
+import { gradeService, examService, modalityService, competitorService, enrollmentService, subCompetenceService, examTimeService } from '../../services';
 import { useAuthStore } from '../../stores/authStore';
 import type { Grade, Exam, Competence, Competitor, Modality, SubCompetence } from '../../types';
 
@@ -22,6 +22,22 @@ const GradesPage: React.FC = () => {
   const [isLoadingBulkData, setIsLoadingBulkData] = useState(false);
   const [isSavingBulkGrades, setIsSavingBulkGrades] = useState(false);
   const [bulkSubCompetences, setBulkSubCompetences] = useState<Map<string, SubCompetence[]>>(new Map());
+  const [bulkTimes, setBulkTimes] = useState<Map<string, string>>(new Map());
+
+  const minutesToTimeStr = (minutes: number): string => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h}:${m.toString().padStart(2, '0')}`;
+  };
+
+  const parseTimeStr = (str: string): number | null => {
+    const parts = str.split(':');
+    if (parts.length !== 2) return null;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m) || m < 0 || m > 59) return null;
+    return h * 60 + m;
+  };
 
   // Filter state
   const [filterExamId, setFilterExamId] = useState<string>('');
@@ -178,6 +194,14 @@ const GradesPage: React.FC = () => {
         initialGrades.set(key, g.score.toString());
       });
       setBulkGrades(initialGrades);
+
+      // Load competitor times
+      try {
+        const times = await examTimeService.getTimes(exam.id);
+        const initialTimes = new Map<string, string>();
+        times.forEach(t => initialTimes.set(t.competitor_id, minutesToTimeStr(t.duration_minutes)));
+        setBulkTimes(initialTimes);
+      } catch { /* ignore */ }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
       setError('Erro ao carregar dados para lançamento de notas');
@@ -194,6 +218,7 @@ const GradesPage: React.FC = () => {
     setExistingGrades([]);
     setBulkGrades(new Map());
     setBulkSubCompetences(new Map());
+    setBulkTimes(new Map());
   };
 
   const handleBulkGradeChange = (competitorId: string, competenceId: string, value: string, subCompetenceId?: string) => {
@@ -220,6 +245,36 @@ const GradesPage: React.FC = () => {
       g.competence_id === competenceId &&
       (subCompetenceId ? g.sub_competence_id === subCompetenceId : !g.sub_competence_id)
     );
+  };
+
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const key = e.key;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return;
+
+    const table = e.currentTarget.closest('table');
+    if (!table) return;
+
+    const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+    const currentRow = e.currentTarget.closest('tr') as HTMLTableRowElement | null;
+    if (!currentRow) return;
+
+    const rowIndex = rows.indexOf(currentRow);
+    const rowInputs = Array.from(currentRow.querySelectorAll<HTMLInputElement>('input'));
+    const colIndex = rowInputs.indexOf(e.currentTarget);
+
+    e.preventDefault();
+
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      const nextRow = rows[rowIndex + (key === 'ArrowDown' ? 1 : -1)];
+      if (nextRow) {
+        const nextInputs = Array.from(nextRow.querySelectorAll<HTMLInputElement>('input'));
+        const target = nextInputs[Math.min(colIndex, nextInputs.length - 1)];
+        if (target) { target.focus(); target.select(); }
+      }
+    } else {
+      const target = rowInputs[colIndex + (key === 'ArrowRight' ? 1 : -1)];
+      if (target) { target.focus(); target.select(); }
+    }
   };
 
   const handleSaveBulkGrades = async () => {
@@ -294,6 +349,16 @@ const GradesPage: React.FC = () => {
             console.error(`Erro ao remover nota ${existingGrade.id}:`, err);
             errorCount++;
           }
+        }
+      }
+
+      // Save competitor times
+      for (const [competitorId, timeStr] of bulkTimes.entries()) {
+        const minutes = parseTimeStr(timeStr);
+        if (minutes !== null && minutes > 0) {
+          try {
+            await examTimeService.setTime(bulkGradeExam.id, competitorId, minutes);
+          } catch { /* ignore */ }
         }
       }
 
@@ -608,6 +673,18 @@ const GradesPage: React.FC = () => {
                               >
                                 Competidor
                               </th>
+                              {true && (
+                                <th
+                                  rowSpan={hasAnySubs ? 2 : 1}
+                                  className="px-2 py-2.5 text-center text-xs font-semibold text-orange-700 dark:text-orange-300 uppercase tracking-wider border-l-2 border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 min-w-[80px]"
+                                  title="Tempo gasto no simulado (h:mm)"
+                                >
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span>Tempo</span>
+                                    <span className="text-[9px] font-normal text-orange-500 dark:text-orange-400">(h:mm)</span>
+                                  </div>
+                                </th>
+                              )}
                               {bulkCompetences.map((comp) => {
                                 const subs = bulkSubCompetences.get(comp.id);
                                 const hasSubs = subs && subs.length > 0;
@@ -673,6 +750,33 @@ const GradesPage: React.FC = () => {
                                     </span>
                                   </div>
                                 </td>
+                                {true && (
+                                  <td className="px-2 py-2 text-center border-l-2 border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-900/10">
+                                    <input
+                                      type="text"
+                                      inputMode="text"
+                                      value={bulkTimes.get(competitor.id) || ''}
+                                      onChange={(e) => {
+                                        const digits = e.target.value.replace(/[^0-9]/g, '');
+                                        const v = digits.length <= 2 ? digits : digits.slice(0, 2) + ':' + digits.slice(2, 4);
+                                        setBulkTimes(prev => {
+                                          const next = new Map(prev);
+                                          if (v === '') next.delete(competitor.id);
+                                          else next.set(competitor.id, v);
+                                          return next;
+                                        });
+                                      }}
+                                      onKeyDown={handleGridKeyDown}
+                                      placeholder="0:00"
+                                      title="Tempo gasto (horas:minutos, ex: 1:30)"
+                                      className={`w-[62px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold appearance-none outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-0
+                                        ${bulkTimes.get(competitor.id)
+                                          ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-400 dark:border-orange-600 text-orange-700 dark:text-orange-300'
+                                          : 'border-orange-200 dark:border-orange-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:border-orange-300'
+                                        }`}
+                                    />
+                                  </td>
+                                )}
                                 {bulkCompetences.map((comp) => {
                                   const subs = bulkSubCompetences.get(comp.id);
                                   if (subs && subs.length > 0) {
@@ -689,6 +793,7 @@ const GradesPage: React.FC = () => {
                                             step="0.1"
                                             value={currentValue}
                                             onChange={(e) => handleBulkGradeChange(competitor.id, comp.id, e.target.value, sub.id)}
+                                            onKeyDown={handleGridKeyDown}
                                             placeholder="–"
                                             className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold transition-all
                                               [appearance:none] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none
@@ -716,6 +821,7 @@ const GradesPage: React.FC = () => {
                                         step="0.1"
                                         value={currentValue}
                                         onChange={(e) => handleBulkGradeChange(competitor.id, comp.id, e.target.value)}
+                                        onKeyDown={handleGridKeyDown}
                                         placeholder="–"
                                         className={`w-[72px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold transition-all
                                           [appearance:none] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none

@@ -65,6 +65,7 @@ class CreateExamUseCase:
             created_by=user_id,
             description=dto.description,
             competence_ids=valid_competence_ids,
+            time_limit_minutes=dto.time_limit_minutes,
         )
 
         # Save and return

@@ -3,7 +3,7 @@ import { Card, Button, Table, Badge, Spinner, Alert, Modal, Input, Select, RichT
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { examService, gradeService, modalityService, competitorService, enrollmentService, subCompetenceService } from '../../services';
+import { examService, gradeService, modalityService, competitorService, enrollmentService, subCompetenceService, examTimeService } from '../../services';
 import type { Exam, Modality, Competitor, Grade, Competence, SubCompetence } from '../../types';
 
 const examSchema = z.object({
@@ -156,6 +156,9 @@ const ExamsPage: React.FC = () => {
 
   // Sub-criteria map for bulk grade modal: competenceId -> SubCompetence[]
   const [bulkSubCompetences, setBulkSubCompetences] = useState<Map<string, SubCompetence[]>>(new Map());
+
+  // Time tracking for bulk grade modal: competitorId -> "h:mm" string
+  const [bulkTimes, setBulkTimes] = useState<Map<string, string>>(new Map());
 
   const {
     register,
@@ -609,8 +612,6 @@ const ExamsPage: React.FC = () => {
       setExamGrades(gradesResponse.grades || []);
 
       // Initialize bulk grades map with existing values
-      // Key: competitorId|competenceId for competences without sub-criteria
-      // Key: competitorId|competenceId|subCompetenceId for sub-criteria grades
       const initialGrades = new Map<string, string>();
       (gradesResponse.grades || []).forEach((g: Grade) => {
         const key = g.sub_competence_id
@@ -619,12 +620,46 @@ const ExamsPage: React.FC = () => {
         initialGrades.set(key, g.score.toString());
       });
       setBulkGrades(initialGrades);
+
+      // Load existing competitor times
+      try {
+        const times = await examTimeService.getTimes(exam.id);
+        const initialTimes = new Map<string, string>();
+        times.forEach((t) => {
+          initialTimes.set(t.competitor_id, minutesToTimeStr(t.duration_minutes));
+        });
+        setBulkTimes(initialTimes);
+      } catch {
+        setBulkTimes(new Map());
+      }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
       setError('Erro ao carregar dados para lançamento de notas');
     } finally {
       setIsLoadingGrades(false);
     }
+  };
+
+  // Convert "h:mm" string to total minutes (e.g. "1:30" -> 90)
+  const parseTimeStr = (str: string): number | null => {
+    const trimmed = str.trim();
+    if (!trimmed) return null;
+    const parts = trimmed.split(':');
+    if (parts.length === 1) {
+      const m = parseInt(parts[0], 10);
+      return isNaN(m) || m < 0 ? null : m;
+    }
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m) || m < 0 || m > 59) return null;
+    return h * 60 + m;
+  };
+
+  // Convert total minutes to "h:mm" display string
+  const minutesToTimeStr = (minutes: number): string => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h}:${String(m).padStart(2, '0')}`;
   };
 
   const handleCloseBulkGradeModal = () => {
@@ -635,6 +670,7 @@ const ExamsPage: React.FC = () => {
     setExamGrades([]);
     setBulkGrades(new Map());
     setBulkSubCompetences(new Map());
+    setBulkTimes(new Map());
   };
 
   const handleBulkGradeChange = (competitorId: string, competenceId: string, value: string, subCompetenceId?: string) => {
@@ -705,6 +741,18 @@ const ExamsPage: React.FC = () => {
         } catch (err) {
           console.error(`Erro ao salvar nota para ${competitorId}/${competenceId}:`, err);
           errorCount++;
+        }
+      }
+
+      // Save competitor times
+      for (const [competitorId, timeStr] of bulkTimes.entries()) {
+        const minutes = parseTimeStr(timeStr);
+        if (minutes !== null && minutes > 0) {
+          try {
+            await examTimeService.setTime(selectedExam.id, competitorId, minutes);
+          } catch (err) {
+            console.error(`Erro ao salvar tempo para ${competitorId}:`, err);
+          }
         }
       }
 
@@ -1290,15 +1338,30 @@ const ExamsPage: React.FC = () => {
                     }
                   });
                   const handleTabNav = (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, colIdx: number) => {
-                    if (e.key !== 'Tab') return;
+                    const arrows = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+                    if (e.key !== 'Tab' && !arrows.includes(e.key)) return;
                     e.preventDefault();
-                    let r = rowIdx, c = e.shiftKey ? colIdx - 1 : colIdx + 1;
-                    if (c >= columns.length) { r++; c = 0; }
-                    if (c < 0) { r--; c = columns.length - 1; }
+                    let r = rowIdx, c = colIdx;
+                    if (e.key === 'Tab') {
+                      c = e.shiftKey ? colIdx - 1 : colIdx + 1;
+                      if (c >= columns.length) { r++; c = -1; }
+                      if (c < -1) { r--; c = columns.length - 1; }
+                    } else if (e.key === 'ArrowRight') {
+                      c = colIdx + 1;
+                      if (c >= columns.length) c = colIdx;
+                    } else if (e.key === 'ArrowLeft') {
+                      c = colIdx - 1;
+                      if (c < -1) c = colIdx;
+                    } else if (e.key === 'ArrowDown') {
+                      r = rowIdx + 1;
+                    } else if (e.key === 'ArrowUp') {
+                      r = rowIdx - 1;
+                    }
                     if (r >= 0 && r < competitors.length) {
                       const next = document.querySelector<HTMLInputElement>(`input[data-brow="${r}"][data-bcol="${c}"]`);
                       if (next) {
                         next.focus();
+                        next.select();
                         requestAnimationFrame(() => {
                           next.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                         });
@@ -1333,6 +1396,18 @@ const ExamsPage: React.FC = () => {
                                 className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-r-2 border-b-2 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800"
                               >
                                 Competidor
+                              </th>
+                              {/* Coluna Tempo */}
+                              <th
+                                rowSpan={hasAnySubs ? 2 : 1}
+                                style={{ position: 'sticky', top: 0, zIndex: 1, width: '90px', minWidth: '90px' }}
+                                className="px-2 py-2.5 text-center text-xs font-semibold text-orange-700 dark:text-orange-300 uppercase tracking-wider border-l-2 border-b-2 border-gray-300 dark:border-gray-600 bg-orange-50 dark:bg-orange-900/20"
+                                title="Tempo gasto no simulado (h:mm)"
+                              >
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span>Tempo</span>
+                                  <span className="text-[9px] font-normal text-orange-500 dark:text-orange-400">(h:mm)</span>
+                                </div>
                               </th>
                               {competences.map((comp) => {
                                 const subs = bulkSubCompetences.get(comp.id);
@@ -1409,6 +1484,34 @@ const ExamsPage: React.FC = () => {
                                       {competitor.full_name}
                                     </span>
                                   </div>
+                                </td>
+                                {/* Célula de tempo — logo após o nome, alinhada com o cabeçalho */}
+                                <td style={{ width: '90px', minWidth: '90px', height: '52px', overflow: 'hidden' }} className="px-2 text-center border-l-2 border-b border-orange-200 dark:border-orange-800 align-middle bg-orange-50/30 dark:bg-orange-900/10">
+                                  <input
+                                    type="text"
+                                    inputMode="text"
+                                    value={bulkTimes.get(competitor.id) || ''}
+                                    onChange={(e) => {
+                                      const digits = e.target.value.replace(/[^0-9]/g, '');
+                                      const v = digits.length <= 2 ? digits : digits.slice(0, 2) + ':' + digits.slice(2, 4);
+                                      setBulkTimes(prev => {
+                                        const next = new Map(prev);
+                                        if (v === '') next.delete(competitor.id);
+                                        else next.set(competitor.id, v);
+                                        return next;
+                                      });
+                                    }}
+                                    onKeyDown={(e) => handleTabNav(e, rowIdx, -1)}
+                                    data-brow={rowIdx}
+                                    data-bcol={-1}
+                                    placeholder="0:00"
+                                    title="Tempo gasto (horas:minutos, ex: 1:30)"
+                                    className={`w-[66px] text-center rounded-lg border-2 px-1.5 py-1.5 text-sm font-semibold appearance-none outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-0
+                                      ${bulkTimes.get(competitor.id)
+                                        ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-400 dark:border-orange-600 text-orange-700 dark:text-orange-300'
+                                        : 'border-orange-200 dark:border-orange-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-orange-300 dark:hover:border-orange-500'
+                                      }`}
+                                  />
                                 </td>
                                 {competences.map((comp) => {
                                   const subs = bulkSubCompetences.get(comp.id);

@@ -3,7 +3,7 @@ export { authService } from './authService';
 export { modalityService } from './modalityService';
 export { trainingService } from './trainingService';
 export { trainingTypeService } from './trainingTypeService';
-export { examService, gradeService, subCompetenceService } from './assessmentService';
+export { examService, gradeService, subCompetenceService, examTimeService } from './assessmentService';
 export { competitorService } from './competitorService';
 export { enrollmentService } from './enrollmentService';
 export { goalService } from './goalService';
