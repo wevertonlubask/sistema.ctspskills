@@ -81,6 +81,7 @@ const SimuladosDashboard: React.FC = () => {
   const [timeLimitExam, setTimeLimitExam] = useState<SimuladoData | null>(null);
   const [timeLimitInput, setTimeLimitInput] = useState('');
   const [isSavingTimeLimit, setIsSavingTimeLimit] = useState(false);
+  const [selectedTimeCompetitors, setSelectedTimeCompetitors] = useState<string[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -468,8 +469,9 @@ const SimuladosDashboard: React.FC = () => {
         // Only competitors that are selected AND have time data
         const competitorNameMap: Record<string, string> = {};
         filteredTimePoints.forEach(p => { competitorNameMap[p.competitorId] = p.competitorName; });
-        const competitorIds = Array.from(new Set(filteredTimePoints.map(p => p.competitorId)))
-          .filter(cid => selectedCompetitors.length === 0 || selectedCompetitors.includes(cid));
+        const allTimeCompetitorIds = Array.from(new Set(filteredTimePoints.map(p => p.competitorId)));
+        const competitorIds = allTimeCompetitorIds
+          .filter(cid => selectedTimeCompetitors.length === 0 || selectedTimeCompetitors.includes(cid));
 
         // Only simulados that have at least one time entry (from selected competitors)
         const simuladosWithData = filteredSimulados.filter(s =>
@@ -534,6 +536,46 @@ const SimuladosDashboard: React.FC = () => {
               </div>
             </CardHeader>
             <CardBody>
+              {allTimeCompetitorIds.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+                  <button
+                    onClick={() => setSelectedTimeCompetitors([])}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      selectedTimeCompetitors.length === 0
+                        ? 'bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900'
+                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  {allTimeCompetitorIds.map((cid, idx) => {
+                    const color = COLORS[idx % COLORS.length];
+                    const isSelected = selectedTimeCompetitors.includes(cid);
+                    const isFiltering = selectedTimeCompetitors.length > 0;
+                    return (
+                      <button
+                        key={cid}
+                        onClick={() => setSelectedTimeCompetitors(prev =>
+                          prev.includes(cid) ? prev.filter(id => id !== cid) : [...prev, cid]
+                        )}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border-2 transition-all ${
+                          !isFiltering || isSelected
+                            ? 'opacity-100'
+                            : 'opacity-40'
+                        }`}
+                        style={{
+                          borderColor: color,
+                          backgroundColor: (!isFiltering || isSelected) ? `${color}22` : 'transparent',
+                          color: color,
+                        }}
+                      >
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                        {competitorNameMap[cid] || cid}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {!hasAnyData ? (
                 <div className="flex flex-col items-center justify-center h-48 text-gray-500 dark:text-gray-400">
                   <svg className="w-14 h-14 mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
